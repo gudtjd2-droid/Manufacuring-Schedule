@@ -911,7 +911,7 @@
 
     const table = el('table', {class:'tbl'});
     const thead = el('tr');
-    ["No.","품목명(코드)","제법+년도","월","순번","시작일","완료일","작업조명","PV","실시간","최종공정물","생산동2층","IPC마지막날","삭제"].forEach(h=> thead.appendChild(el('th',null,[h])));
+    ["No.","품목명(코드)","제법+년도","월","순번","시작일","완료일","작업조명","PV","실시간",["QC Test 없는 중간체","최종공정물"],"생산동2층","IPC마지막날","삭제"].forEach(h=> thead.appendChild(el('th',null, Array.isArray(h)? [h[0], el('br'), h[1]] : [h])));
     table.appendChild(el('thead',null,[thead]));
     const tbody = el('tbody');
     [...state.batches].sort((a,b)=> a.start.localeCompare(b.start)).forEach((b,idx)=>{
