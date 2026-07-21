@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>제조일정 캘린더 → 작성상황 자동화</title>
+</head>
+<body>
+<div id="app"></div>
+<style>
+  :root{
+    --navy:#16324f; --navy-2:#1f3f61; --paper:#f7f8fa; --card:#ffffff;
+    --ink:#1b2530; --sub:#5b6b7c; --line:#dbe2ea;
+    --teal:#0e8a7a; --teal-d:#0b6e61;
+    --amber:#f4b942; --amber-bg:#fff6df;
+    --red:#c0392b; --red-bg:#fbe9e7;
+    --pink:#e0468a; --pink-bg:#ffe3f2;
+    --blue:#1f5fbf;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Malgun Gothic', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  #app{font-family:var(--sans); color:var(--ink); background:var(--paper); padding:18px; line-height:1.4; font-size:13px;}
+  h1{font-size:18px; margin:0 0 2px; color:var(--navy);}
+  h2{font-size:13px; margin:0 0 10px; color:var(--navy-2); display:flex; align-items:center; gap:6px;}
+  .sub{color:var(--sub); font-size:12px; margin-bottom:16px;}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:14px;}
+  .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+  .cols2{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+  @media (max-width:900px){ .cols2{grid-template-columns:1fr;} }
+  .cols3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px;}
+  @media (max-width:1150px){ .cols3{grid-template-columns:1fr;} }
+  label{font-size:12px; color:var(--sub);}
+  select, input[type=text], input[type=date], textarea, input[type=number]{
+    font-family:var(--sans); font-size:12px; border:1px solid var(--line); border-radius:6px; padding:5px 7px; background:#fff; color:var(--ink);
+  }
+  textarea{width:100%; min-height:56px; resize:vertical;}
+  button{font-family:var(--sans); font-size:12px; border:none; border-radius:6px; padding:6px 12px; background:var(--teal); color:#fff; cursor:pointer; font-weight:600;}
+  button:hover{background:var(--teal-d);}
+  button.ghost{background:#fff; color:var(--navy-2); border:1px solid var(--line);}
+  button.ghost:hover{background:#eef2f6;}
+  button.danger{background:#fff; color:var(--red); border:1px solid var(--red-bg); padding:3px 8px; font-size:11px;}
+  .status{font-size:11px; color:var(--sub);}
+  .pastezone{
+    border:2px dashed #b9c6d4; border-radius:10px; background:#fbfcfe; min-height:110px;
+    padding:14px; font-size:12px; color:var(--sub); outline:none; font-family:var(--mono);
+  }
+  .pastezone:focus{border-color:var(--teal); background:#fff;}
+  .pastezone.filled{border-style:solid; border-color:var(--teal); color:var(--ink); background:#fff;}
+  .hint{font-size:11px; color:var(--sub); margin-top:6px;}
+  .warnbox{background:var(--amber-bg); border:1px solid #f0d38a; border-radius:8px; padding:8px 10px; font-size:11.5px; color:#7a5a0a; margin-top:8px;}
+  .errbox{background:var(--red-bg); border:1px solid #e7b3ac; border-radius:8px; padding:8px 10px; font-size:11.5px; color:#8a3527; margin-top:8px;}
+
+  /* 캘린더 */
+  .cal{display:grid; grid-template-columns:repeat(7,1fr); gap:6px;}
+  .cal .dow{text-align:center; font-size:11px; font-weight:700; color:var(--sub); padding-bottom:2px;}
+  .cal .day{background:#fbfcfe; border:1px solid var(--line); border-radius:8px; min-height:120px; padding:5px 6px; font-size:11px;}
+  .cal .day.empty{background:transparent; border:none;}
+  .cal .day.weekend{background:#fdf5f4;}
+  .cal .halves{display:grid; grid-template-columns:1fr 1fr; gap:5px;}
+  .cal .halfcol{border-left:1px dashed var(--line); padding-left:4px;}
+  .cal .halfcol:first-child{border-left:none; padding-left:0;}
+  .cal .halflabel{font-size:9px; color:var(--sub); font-weight:700; margin-bottom:2px;}
+  .cal .day.holiday-cell{background:var(--red); color:#fff; font-weight:700;}
+  .cal .day:not(.empty):hover{outline:2px solid var(--teal);}
+  .cal .daynum{font-weight:700; color:var(--navy-2); margin-bottom:3px; display:flex; justify-content:space-between;}
+  .cal .chip{display:block; background:#eef2f6; border-radius:5px; padding:1px 5px; margin-bottom:2px; font-family:var(--mono); font-size:10px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .cal .chip.start{background:var(--navy); color:#fff; font-weight:700;}
+  .cal .chip.ipc{outline:2px solid var(--pink);}
+  .cal .chip.pv{border-left:3px solid var(--blue);}
+  .cal .chip:hover{filter:brightness(0.95);}
+
+  .grid-wrap{overflow-x:auto; border:1px solid var(--line); border-radius:8px; max-height:640px; overflow-y:auto;}
+  table.sched{border-collapse:collapse; width:max-content; min-width:100%;}
+  table.sched th, table.sched td{border:1px solid var(--line); padding:3px 5px; text-align:center; font-size:11px;}
+  table.sched thead th{background:var(--navy); color:#fff; font-weight:600; position:sticky; top:0; z-index:3;}
+  table.sched thead tr.wk th{background:var(--navy-2); top:0;}
+  table.sched thead tr:last-child th{top:23px;}
+  th.dayhead{min-width:150px;}
+  th.corner{position:sticky; left:0; z-index:4; background:var(--navy); min-width:110px;}
+  td.rowname{position:sticky; left:0; background:#eef2f6; z-index:2; min-width:110px; font-weight:700; font-family:var(--mono);}
+  table.sched td.cell{min-width:75px; font-family:var(--mono); color:var(--navy-2);}
+  table.sched td.cell.weekend{background:#fdf5f4;}
+  table.sched td.cell.bold{background:var(--navy); color:#fff; font-weight:800;}
+  table.sched td.cell.ipc{outline:2px solid var(--pink); outline-offset:-2px;}
+  table.tbl{border-collapse:collapse; width:100%; font-size:11.5px;}
+  table.tbl th, table.tbl td{border:1px solid var(--line); padding:4px 5px; text-align:center;}
+  table.tbl thead th{background:var(--navy-2); color:#fff; position:sticky; top:0;}
+  table.tbl td input, table.tbl td select{width:100%; border:1px solid transparent; background:transparent; text-align:center; font-family:var(--mono);}
+  table.tbl td input:focus, table.tbl td select:focus{border:1px solid var(--teal); background:#fff;}
+  table.tbl tr.hl{outline:2px solid var(--teal);}
+  table.tbl tr.flag td{background:var(--amber-bg);}
+  table.tbl td.rownum{background:#eef2f6; color:var(--sub); font-weight:700; cursor:pointer; user-select:none; width:36px;}
+  button.daybtn{padding:2px 5px; font-size:10px; background:#eef2f6; color:var(--navy-2); border:1px solid var(--line);}
+  button.daybtn:hover{background:#dde6ee;}
+  table.tbl td.rownum:hover{background:#dde6ee;}
+  table.tbl tr.selected-row td{background:#dff3ef !important;}
+  table.tbl tr.selected-row td.rownum{background:var(--teal) !important; color:#fff;}
+  .roster-badge{display:inline-block; background:#eef2f6; border-radius:5px; padding:2px 6px; margin:2px; font-size:11px;}
+  .toolbar{display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;}
+</style>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  // ================= 공용 저장소 설정 (Supabase) =================
+  // 아래 두 값을 Supabase 프로젝트의 Project URL / anon public key로 바꿔주세요.
+  const SUPABASE_URL = "여기에_Supabase_프로젝트_URL_입력";
+  const SUPABASE_ANON_KEY = "여기에_Supabase_anon_public_key_입력";
+  const KV_TABLE = "kv_store";
+
+  async function kvGet(key){
+    try{
+      const url = `${SUPABASE_URL}/rest/v1/${KV_TABLE}?key=eq.${encodeURIComponent(key)}&select=value`;
+      const res = await fetch(url, {
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` }
+      });
+      if(!res.ok) return null;
+      const rows = await res.json();
+      return (rows && rows.length) ? { value: rows[0].value } : null;
+    }catch(e){ console.error("kvGet 실패", key, e); return null; }
+  }
+
+  async function kvSet(key, value){
+    try{
+      const url = `${SUPABASE_URL}/rest/v1/${KV_TABLE}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          "Content-Type": "application/json",
+          Prefer: "resolution=merge-duplicates"
+        },
+        body: JSON.stringify([{ key, value }])
+      });
+      if(!res.ok) console.error("kvSet 실패", key, await res.text());
+      return res.ok;
+    }catch(e){ console.error("kvSet 실패", key, e); return false; }
+  }
+
+  // ================= 날짜/영업일 유틸 =================
+  let holidayList = ""; // 전역 공휴일 목록(쉼표구분 YYYY-MM-DD), 월과 무관하게 재사용
+  function holidaySet(){ return new Set(parseList(holidayList)); }
+  function isWeekend(d){ const w=d.getDay(); return w===0||w===6; }
+  function isHoliday(d){ return holidaySet().has(iso(d)); }
+  function isNonBiz(d){ return isWeekend(d) || isHoliday(d); }
+  function nextBD(d){ const n=new Date(d); do{ n.setDate(n.getDate()+1); }while(isNonBiz(n)); return n; }
+  function addBD(d,n){ let c=new Date(d); for(let i=0;i<n;i++) c=nextBD(c); return c; }
+  // 로그북/BPR 세부 로직은 computeRules() 안에서 배치별 조건(PV·실시간·IPC 등)에 따라 직접 계산합니다.
+  // 일반 품목(원료의약품, QC없는 중간체) BPR: 완료일 그대로, 단 완료일이 주말/공휴일이면 다음 영업일
+  function generalBprDate(end){ return isNonBiz(end)? nextBD(end) : end; }
+  // PV·실시간 품목 BPR: 완료일+1영업일, 완료일이 주말/공휴일이면 완료일 기준 총 2영업일
+  function specialBprDate(end){ return addBD(end, isNonBiz(end)?2:1); }
+  function iso(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+  function fromIso(s){ if(!s) return null; const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); }
+  function wkKr(d){ return ['일','월','화','수','목','금','토'][d.getDay()]; }
+  function daysInMonth(y,m){ return new Date(y,m,0).getDate(); }
+
+  // ================= 제조번호 파싱 =================
+  function parseCode(raw){
+    if(!raw) return null;
+    let text = String(raw).trim();
+    let team = "";
+    const tm = text.match(/\(([^)]*)\)\s*$/);
+    if(tm){ team = tm[1]; text = text.slice(0, tm.index).trim(); }
+    text = text.replace(/\s+/g,'');
+    if(text.length < 7) return null;
+    const tail = text.slice(-7);
+    const namePart = text.slice(0, -7);
+    const tailM = tail.match(/^(\d)(\d{2})([A-Za-z])(\d{2})(\d)$/);
+    if(!tailM || !/^[A-Za-z]+\d{0,2}$/.test(namePart)) return null;
+    const [, method, year, monthCode, seq, reprocess] = tailM;
+    const sm = namePart.match(/^([A-Za-z]+)(\d{2})$/);
+    let base, suffix;
+    if(sm){ base = sm[1]; suffix = sm[2]; } else { base = namePart; suffix = ""; }
+    return { base, suffix, method, year, monthCode, seq: seq+reprocess, team, codeId: base+suffix };
+  }
+  // "EDM126G060~G080(16)" 또는 "EDM126G330~350(8)" 같은 범위 표기를 개별 배치들로 확장
+  function expandRangeCode(raw){
+    if(!raw) return null;
+    let text = String(raw).trim();
+    let team = "";
+    const tm = text.match(/\(([^)]*)\)\s*$/);
+    if(tm){ team = tm[1]; text = text.slice(0, tm.index).trim(); }
+    text = text.replace(/\s+/g,'');
+    const tildeIdx = text.indexOf('~');
+    if(tildeIdx < 0) return null;
+    const left = text.slice(0, tildeIdx);
+    const right = text.slice(tildeIdx+1);
+    const leftParsed = parseCode(left);
+    if(!leftParsed) return null;
+    const rm = right.match(/^([A-Za-z])?(\d{3})$/);
+    if(!rm) return null;
+    const startNum = parseInt(leftParsed.seq, 10);
+    const endNum = parseInt(rm[2], 10);
+    if(isNaN(startNum) || isNaN(endNum) || endNum <= startNum) return null;
+    const step = 10; // 060,070,080 처럼 10 단위 증가하는 표기 기준
+    const codes = [];
+    for(let n = startNum; n <= endNum; n += step){
+      const seqStr = String(n).padStart(3, '0');
+      codes.push({ base: leftParsed.base, suffix: leftParsed.suffix, method: leftParsed.method,
+        year: leftParsed.year, monthCode: leftParsed.monthCode, seq: seqStr, team, codeId: leftParsed.codeId });
+    }
+    return codes.length ? codes : null;
+  }
+  function parseList(str){ return (str||"").split(/[,\s]+/).map(s=>s.trim()).filter(Boolean); }
+  function uid(p){ return p+Math.random().toString(36).slice(2,9); }
+
+  // ================= HTML 표 -> 2D 그리드 (병합 셀 반영) =================
+  function colorIsBlueish(rgb){
+    if(!rgb) return false;
+    const m = rgb.match(/(\d+),\s*(\d+),\s*(\d+)/); if(!m) return false;
+    const [r,g,b] = m.slice(1).map(Number);
+    return b>120 && b > r+25 && b > g+10;
+  }
+  function colorIsPinkish(rgb){
+    if(!rgb) return false;
+    const m = rgb.match(/(\d+),\s*(\d+),\s*(\d+)/); if(!m) return false;
+    const [r,g,b] = m.slice(1).map(Number);
+    return r>220 && b>190 && g<210 && (r-g)>20;
+  }
+  function scanStyle(node, acc){
+    if(node.style){
+      const fw = node.style.fontWeight;
+      if(fw && (fw==='bold' || parseInt(fw,10)>=600)) acc.bold = true;
+      if(node.style.color && colorIsBlueish(node.style.color)) acc.blue = true;
+      const bg = node.style.backgroundColor;
+      if(bg && colorIsPinkish(bg)) acc.pink = true;
+    }
+    if(node.tagName==='B' || node.tagName==='STRONG') acc.bold = true;
+    Array.from(node.children||[]).forEach(ch=>scanStyle(ch, acc));
+  }
+  function extractCellInfo(cell){
+    const acc = {bold:false, blue:false, pink:false};
+    scanStyle(cell, acc);
+    return { text: (cell.textContent||"").trim(), bold: acc.bold, blue: acc.blue, pink: acc.pink };
+  }
+  function tableToGrid(table){
+    const grid = [];
+    const pending = {};
+    const rows = table.rows;
+    for(let r=0; r<rows.length; r++){
+      grid[r] = [];
+      let col = 0, ci = 0;
+      const cells = rows[r].cells;
+      while(ci < cells.length || pending[col]){
+        if(pending[col] && pending[col].rowsLeft > 0){
+          grid[r][col] = pending[col].value;
+          pending[col].rowsLeft--;
+          if(pending[col].rowsLeft===0) delete pending[col];
+          col++; continue;
+        }
+        const cell = cells[ci++];
+        if(!cell){ col++; continue; }
+        const colspan = cell.colSpan||1, rowspan = cell.rowSpan||1;
+        const value = extractCellInfo(cell);
+        for(let k=0;k<colspan;k++){
+          grid[r][col+k] = value;
+          if(rowspan>1) pending[col+k] = {rowsLeft: rowspan-1, value};
+        }
+        col += colspan;
+      }
+    }
+    return grid;
+  }
+  function htmlToGrid(html){
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const table = doc.querySelector('table');
+    if(!table) return null;
+    return tableToGrid(table);
+  }
+  function textToGrid(text){
+    return text.split(/\r?\n/).filter(l=>l.length).map(line=> line.split('\t').map(t=>({text:t.trim(), bold:false, blue:false, pink:false})));
+  }
+
+  // ================= 붙여넣은 월간일정 그리드 -> 배치/QC 추출 =================
+  const BLOCK_MARKERS = ["원료 칭량","원료칭량","pH 측정","QC IPC","특이사항"];
+  const QC_INTER_MARK = "QC 중간체";
+  const QC_API_MARK = "QC 원료의약품";
+
+  function addDays(d,n){ const c=new Date(d); c.setDate(c.getDate()+n); return c; }
+
+  function findFirstDateCol(rowArr, after){
+    for(let c=after+1; c<rowArr.length; c++){ const n=parseInt((rowArr[c]&&rowArr[c].text||"").trim(),10); if(n>=1&&n<=31) return c; }
+    return after+1;
+  }
+
+  function mergeContinuations(batches){
+    let changed = true;
+    while(changed){
+      changed = false;
+      for(const b of batches){
+        if(!b.possibleContinuation || b._removed) continue;
+        const prevDay = iso(addDays(fromIso(b.start), -1));
+        // 주의: codeId만으로 매칭하면 EDM처럼 같은 품목명을 공유하는 서로 다른 배치(G060,G070...)가
+        // 잘못 하나로 합쳐질 수 있어, 품목명+월+순번(정확한 배치번호)까지 모두 같을 때만 이어붙입니다.
+        const match = batches.find(a=> !a._removed && a!==b
+          && a.codeId===b.codeId && a.monthCode===b.monthCode && a.seq===b.seq && a.end===prevDay);
+        if(match){
+          match.end = b.end;
+          match.endHalf = b.endHalf;
+          match.ipcDates = (match.ipcDates||[]).concat(b.ipcDates||[]);
+          b._removed = true;
+          changed = true;
+        }
+      }
+    }
+    return batches.filter(b=>!b._removed);
+  }
+
+  function parseScheduleGrid(grid, year, month, hadFormatting){
+    const warnings = [];
+    // 표 안의 모든 '품명' 헤더(=매주 반복되는 각 주간 표의 시작)를 찾는다
+    const headerRows = [];
+    for(let r=0; r<grid.length; r++){
+      for(let c=0; c<(grid[r]||[]).length; c++){
+        const t = (grid[r][c]||{}).text||"";
+        if(t.replace(/\s+/g,'')==='품명'){ headerRows.push({row:r, col:c}); break; }
+      }
+    }
+    if(headerRows.length===0){
+      warnings.push("'품명' 헤더를 찾지 못했습니다. 붙여넣은 범위에 헤더 행(구분/품명/문서번호/제조단위)이 포함되어 있는지 확인해주세요.");
+      return {batches:[], qcInter:{}, qcApi:{}, warnings};
+    }
+
+    let allBatches = [];
+    const qcInter = {}, qcApi = {};
+
+    headerRows.forEach((hdr, blockIdx)=>{
+      const headerRow = hdr.row, nameCol = hdr.col;
+      const blockEndRow = (blockIdx+1 < headerRows.length) ? headerRows[blockIdx+1].row : grid.length;
+
+      let dateRow = -1;
+      for(let r=Math.max(0,headerRow-3); r<headerRow; r++){
+        let cnt=0;
+        (grid[r]||[]).forEach(cell=>{ const n=parseInt((cell&&cell.text||"").trim(),10); if(n>=1 && n<=31) cnt++; });
+        if(cnt>=3) dateRow = r;
+      }
+      if(dateRow<0){ warnings.push(`${blockIdx+1}번째 주간 표에서 날짜 행을 찾지 못해 건너뜁니다.`); return; }
+
+      const dataStartCol = findFirstDateCol(grid[dateRow], nameCol);
+      const colDay = {};
+      for(let c=dataStartCol; c<grid[dateRow].length; c++){
+        const n = parseInt((grid[dateRow][c]&&grid[dateRow][c].text||"").trim(),10);
+        if(n>=1 && n<=31) colDay[c] = n;
+      }
+      let last=null;
+      for(let c=dataStartCol; c<grid[dateRow].length; c++){
+        if(colDay[c]!=null) last=colDay[c]; else if(last!=null) colDay[c]=last;
+      }
+      const dayValues = Object.values(colDay);
+      if(dayValues.length===0){ warnings.push(`${blockIdx+1}번째 주간 표에서 날짜를 인식하지 못했습니다.`); return; }
+      const blockMinDay = Math.min(...dayValues);
+
+      let mode = 'data';
+      for(let r=headerRow+1; r<blockEndRow; r++){
+        const label = ((grid[r]||[])[nameCol]||{}).text || "";
+        if(!label) continue;
+        if(BLOCK_MARKERS.some(m=>label.includes(m)) && !label.includes(QC_INTER_MARK) && !label.includes(QC_API_MARK)){
+          mode = 'qc-scan';
+        }
+        if(label.includes(QC_INTER_MARK) || label.includes(QC_API_MARK)){
+          const target = label.includes(QC_INTER_MARK) ? qcInter : qcApi;
+          for(let c=dataStartCol; c<grid[r].length; c++){
+            const day = colDay[c]; const v = (grid[r][c]||{}).text||"";
+            if(!day || !v.trim()) continue;
+            parseList(v).forEach(name=>{ target[day] = target[day]||[]; if(!target[day].includes(name)) target[day].push(name); });
+          }
+          continue;
+        }
+        if(mode!=='data') continue;
+
+        const isPvRow = (grid[r][nameCol]||{}).blue || false;
+        let cur = null;
+        for(let c=dataStartCol; c<grid[r].length; c++){
+          const day = colDay[c]; if(!day) continue;
+          const cellInfo = grid[r][c] || {};
+          if(!cellInfo.text) continue;
+          const half = ((c - dataStartCol) % 2 === 0) ? 'am' : 'pm'; // 요일당 2칸(오전,오후) 구조 가정
+          const rangeCodes = expandRangeCode(cellInfo.text);
+          const codesInCell = rangeCodes || (parseCode(cellInfo.text) ? [parseCode(cellInfo.text)] : []);
+          if(codesInCell.length===0) continue;
+          const theDate = new Date(year, month-1, day);
+          codesInCell.forEach(parsed=>{
+            const sameLot = cur && cur.codeId===parsed.codeId && cur.monthCode===parsed.monthCode && cur.seq===parsed.seq;
+            if(!sameLot){
+              if(cur) allBatches.push(cur);
+              cur = {
+                id: uid('b'), codeId: parsed.codeId, base:parsed.base, suffix:parsed.suffix,
+                method:parsed.method, year:parsed.year, monthCode:parsed.monthCode, seq:parsed.seq,
+                team:parsed.team, start: iso(theDate), end: iso(theDate), startHalf: half, endHalf: half, ipcDates: [],
+                pv: isPvRow, startBold: hadFormatting? !!cellInfo.bold : true, note:"",
+                blockIdx, possibleContinuation: (day===blockMinDay && hadFormatting && !cellInfo.bold),
+              };
+            } else {
+              cur.end = iso(theDate);
+              cur.endHalf = half;
+              if(parsed.team) cur.team = parsed.team;
+            }
+            if(cellInfo.pink) cur.ipcDates.push(iso(theDate));
+          });
+        }
+        if(cur) allBatches.push(cur);
+      }
+    });
+
+    // 주 경계를 넘어 이어지는 배치(예: 목~다음주 화 등) 자동 병합
+    allBatches = mergeContinuations(allBatches);
+
+    // 병합 후에도 이어붙일 대상이 없고, 그 표에서 가장 이른 날짜에 굵게 표시가 안 된 배치는
+    // 이전 달부터 이어진 배치일 수 있습니다. 다만 실제로 이번 달 첫날에 새로 시작된 기록일 수도 있으므로
+    // 자동으로 삭제하지 않고, 목록에는 남겨둔 채 '확인 필요' 메모만 남깁니다.
+    allBatches.forEach(b=>{
+      if(b.blockIdx===0 && b.possibleContinuation){
+        b.note = (b.note? b.note+" / ":"") + "이번 붙여넣기 범위의 첫날에 굵은 표시가 없어 이전 달 이월 배치일 수 있습니다(맞으면 직접 삭제해주세요)";
+      }
+    });
+    if(!hadFormatting) warnings.push("서식 정보 없이 텍스트만 붙여넣어져 굵은 글씨(제조시작일)를 자동으로 구분하지 못했습니다. 아래 표에서 시작일/완료일을 확인해주세요.");
+    warnings.push(`총 ${headerRows.length}개 주간 표를 인식했습니다.`);
+    return { batches: allBatches, qcInter, qcApi, warnings };
+  }
+
+  function parseRosterGrid(grid){
+    const roster = [];
+    grid.forEach(row=>{
+      for(let c=0;c<row.length-1;c++){
+        const noTxt = (row[c]&&row[c].text||"").replace(/\s+/g,'');
+        if(/^\d+[&]?$/.test(noTxt) && noTxt!==""){
+          const name1 = (row[c+1]&&row[c+1].text||"").trim();
+          const name2raw = (row[c+2]&&row[c+2].text||"").trim();
+          const name2 = (name2raw && !/^\d+[&]?$/.test(name2raw)) ? name2raw : "";
+          if(name1 && !/^\d+$/.test(name1)) roster.push({no:noTxt, name1, name2});
+        }
+      }
+    });
+    return roster;
+  }
+  function findRoster(team){
+    if(!team) return null;
+    const tokens = team.split(',').map(s=>s.trim());
+    return state.roster.find(x=> tokens.includes(x.no)) || null;
+  }
+  // 작업조가 여러 개(예: "7&,17&")인 경우 각 조의 이름쌍을 &로 이어붙임 (예: 김연성/이연성&이연성/김연성)
+  function resolveTeamNames(teamStr){
+    if(!teamStr) return null;
+    const tokens = teamStr.split(',').map(s=>s.trim()).filter(Boolean);
+    if(tokens.length===0) return null;
+    const parts = tokens.map(t=>{
+      const hit = state.roster.find(x=>x.no===t);
+      return hit ? [hit.name1, hit.name2].filter(Boolean).join('/') : null;
+    });
+    if(parts.some(p=>!p)) return null;
+    return parts.join('&');
+  }
+
+  // ================= 작성상황 대장(실사용 서식) 붙여넣기 -> 헤더 매핑 =================
+  const FIELD_KEYWORDS = [
+    ['제법+년도','methodYear'], ['제법','method'], ['년도','year'],
+    ['해당월순번','seq'], ['순번','seq'], ['일련번호','seq'],
+    ['해당월','monthCode'], ['월','monthCode'],
+    ['제조시작일','start'], ['시작일','start'],
+    ['제조완료일','end'], ['완료일','end'],
+    ['품질시험','qcType'],
+    ['PV','pv'], ['CV','cv'], ['실시간','realtime'],
+    ['생산동','floor2'],
+    ['BPR','bpr'], ['로그북','logbook'],
+    ['작성자(1)','writer1'], ['확인자(1)','confirmer1'],
+    ['작성자(2)','writer2'], ['확인자(2)','confirmer2'],
+    ['작업조','team'],
+    ['비고','note'],
+    ['발행번호','issueNo'],
+    ['품목명','item'], ['품명','item'],
+    ['No','no'],
+  ];
+  function detectFieldType(headerText){
+    const t = (headerText||"").replace(/\s+/g,'');
+    for(const [kw,type] of FIELD_KEYWORDS){ if(t.includes(kw.replace(/\s+/g,''))) return type; }
+    return null;
+  }
+  function parseLedgerGrid(grid){
+    if(!grid || grid.length===0) return {header:[], rows:[]};
+    // 헤더로 보이는 행 찾기: 텍스트가 있는 셀 비율이 가장 높은 상단 행
+    let headerRowIdx = 0, bestScore = -1;
+    for(let r=0; r<Math.min(grid.length,5); r++){
+      const filled = (grid[r]||[]).filter(c=>c && c.text && c.text.trim()).length;
+      if(filled>bestScore){ bestScore = filled; headerRowIdx = r; }
+    }
+    const headerRow = grid[headerRowIdx]||[];
+    const header = headerRow.map(c=> ({ text: (c&&c.text||"").trim(), field: detectFieldType(c&&c.text) }));
+    const rows = grid.slice(headerRowIdx+1)
+      .filter(row=> row.some(c=>c && c.text && c.text.trim()))
+      .map(row=> header.map((h,i)=> (row[i]&&row[i].text)||""));
+    return { header, rows };
+  }
+
+  // ================= 상태 & 저장 =================
+  const today = new Date();
+  const state = {
+    year: today.getFullYear(), month: today.getMonth()+1,
+    batches: [], roster: [],
+    notes: "",
+    ledgerRows: [],
+  };
+  let ledgerTemplate = []; // 작성상황 대장 헤더 구조(월과 무관, 전역 1회 설정)
+  let qcInterRows = []; // 월간일정에서 자동 캡처된 QC 중간체 시험의뢰일 원본(날짜,카테고리) - 화면에 안 보이는 배경 데이터
+  let qcCategoryRows = []; // 품목 카테고리 & 세부항목 영구 등록표 [{category, details}]
+
+  async function loadLedgerTemplate(){
+    try{
+      const res0 = await kvGet('lastViewedMonth');
+      if(res0 && res0.value){
+        const parsed = JSON.parse(res0.value);
+        if(parsed.year && parsed.month){ state.year = parsed.year; state.month = parsed.month; }
+      }
+    }catch(e){ /* 저장된 마지막 조회월 없음 - today 기본값 유지 */ }
+    try{
+      const res = await kvGet('ledgerTemplateHeader');
+      if(res && res.value) ledgerTemplate = JSON.parse(res.value);
+    }catch(e){ ledgerTemplate = []; }
+    try{
+      const res2 = await kvGet('holidayList');
+      if(res2 && res2.value) holidayList = res2.value;
+    }catch(e){ holidayList = ""; }
+    try{
+      const res7 = await kvGet('qcScheduleLog');
+      if(res7 && res7.value) qcInterRows = JSON.parse(res7.value);
+    }catch(e){ qcInterRows = []; }
+    try{
+      const res9 = await kvGet('qcCategoryRows');
+      if(res9 && res9.value) qcCategoryRows = JSON.parse(res9.value);
+    }catch(e){ qcCategoryRows = []; }
+  }
+  async function saveLedgerTemplate(){
+    try{ await kvSet('ledgerTemplateHeader', JSON.stringify(ledgerTemplate)); }catch(e){}
+  }
+  async function saveHolidays(){
+    try{ await kvSet('holidayList', holidayList); }catch(e){}
+  }
+  async function saveQcRows(){
+    try{ await kvSet('qcScheduleLog', JSON.stringify(qcInterRows)); }catch(e){}
+  }
+  async function saveQcCategoryRows(){
+    try{ await kvSet('qcCategoryRows', JSON.stringify(qcCategoryRows)); }catch(e){}
+  }
+
+  function storageKey(){ return `caldsched:${state.year}-${String(state.month).padStart(2,'0')}`; }
+  async function loadMonth(){
+    try{
+      const res = await kvGet(storageKey());
+      if(res && res.value){ Object.assign(state, JSON.parse(res.value)); setStatus("불러옴 · "+storageKey()); }
+      else { resetMonth(); setStatus("새 월"); }
+    }catch(e){ resetMonth(); setStatus("새 월"); }
+    render();
+  }
+  function resetMonth(){
+    state.batches=[]; state.roster=[];
+    state.notes=""; state.ledgerRows=[];
+  }
+  let saveTimer=null;
+  function scheduleSave(){ clearTimeout(saveTimer); setStatus("저장 중..."); saveTimer=setTimeout(saveMonth,500); }
+  async function saveMonth(){
+    const {year,month,...rest} = state;
+    try{
+      await kvSet(storageKey(), JSON.stringify({year,month,...rest}));
+      await kvSet('lastViewedMonth', JSON.stringify({year,month}));
+      setStatus("저장됨 · "+new Date().toLocaleTimeString('ko-KR'), 'ok');
+    }
+    catch(e){ setStatus("저장 실패 (다시 시도해주세요)", 'err'); }
+  }
+  function setStatus(msg, kind){
+    const e=document.getElementById('statusText'); if(!e) return;
+    e.textContent = msg;
+    e.style.color = kind==='err' ? 'var(--red)' : kind==='ok' ? 'var(--teal-d)' : 'var(--sub)';
+    e.style.fontWeight = kind ? '700' : '400';
+  }
+
+  // ================= 규칙 계산 =================
+  function categoryFor(codeId){
+    // 세부항목(예: BTO03)이 등록된 카테고리(예: BTO)를 찾아 반환. 없으면 null.
+    const hit = qcCategoryRows.find(r=> parseList(r.details).includes(codeId));
+    return hit ? hit.category.trim() : null;
+  }
+  function findQcDate(codeId, refDate){
+    // qcInterRows는 월간일정에서 자동 캡처되는 배경 데이터로, 여러 달에 걸쳐 쌓입니다.
+    // 배치 코드가 등록된 세부항목이면 그 카테고리명(예: BTO)으로, 아니면 코드 자체로 매칭합니다.
+    const category = categoryFor(codeId);
+    const matchNames = category ? [category, codeId] : [codeId];
+    let best = null, bestDiff = Infinity;
+    qcInterRows.forEach(row=>{
+      if(!row.date) return;
+      const items = parseList(row.items);
+      if(!matchNames.some(n=> items.includes(n))) return;
+      const d = fromIso(row.date);
+      const diff = Math.abs(d - refDate);
+      if(diff < bestDiff){ bestDiff = diff; best = d; }
+    });
+    return best;
+  }
+
+  function computeRules(){
+    return state.batches.map(b=>{
+      const start = fromIso(b.start), effEnd = fromIso(b.end);
+      let note = [];
+
+      const isMid = !!b.suffix;
+      const isSpecial = !!(b.pv || b.realtime); // PV·실시간은 동일 규칙
+      const ipcOnLastDay = (b.ipcDates||[]).includes(iso(effEnd));
+
+      // ---- 품질시험진행중간체 구분 ----
+      let qcType = "-", qcDate = null;
+      if(b.noQc){
+        qcType = "X"; // 최종공정물 또는 QC Test 없는 중간체로 명시 체크 (완료일 기준 그대로)
+      } else if(isMid){
+        qcDate = findQcDate(b.codeId, effEnd);
+        if(qcDate){ qcType="O"; } else { qcType="?"; note.push("QC 중간체 시험의뢰일 확인 필요"); }
+      }
+
+      // ---- BPR 제출예정일 ----
+      let bpr;
+      if(isSpecial){
+        const specialDate = specialBprDate(effEnd); // 평일 +1영업일 / 휴일 +2영업일
+        if(isMid && qcType==="O"){
+          const qcBased = addBD(qcDate, 1);
+          bpr = specialDate > qcBased ? specialDate : qcBased; // 둘 중 더 뒷날짜
+        } else if(isMid && qcType==="?"){
+          bpr = specialDate; // QC의뢰일 확인 전 잠정치(위 note에 확인 필요 표시됨)
+        } else {
+          bpr = specialDate;
+        }
+      } else if(isMid && qcType==="O"){
+        bpr = addBD(qcDate, 1);
+      } else if(isMid && qcType==="?"){
+        bpr = null;
+      } else {
+        bpr = generalBprDate(effEnd); // 원료의약품, QC없는 중간체(X)
+      }
+      if(ipcOnLastDay && bpr){ bpr = addBD(bpr,1); }
+
+      // ---- 로그북 제출예정일 ----
+      let logbook = effEnd;
+      if(isNonBiz(logbook)) logbook = nextBD(logbook);
+      if(isSpecial) logbook = addBD(logbook, 1); // PV·실시간은 로그북도 +1영업일
+      if(ipcOnLastDay) logbook = addBD(logbook, 1);
+      if(ipcOnLastDay) note.push("IPC가 완료일과 겹쳐 +1영업일");
+
+      if(b.startBold===false) note.push("시작일 굵게 표시 확인 필요(이월 배치일 수 있음)");
+
+      const rosterHit = findRoster(b.team);
+      const teamNamesCombined = resolveTeamNames(b.team);
+      return Object.assign({}, b, {start, end: effEnd, qcType, bpr, logbook, note: note.join(" / "),
+        rosterName: teamNamesCombined || (rosterHit? [rosterHit.name1, rosterHit.name2].filter(Boolean).join('/') : ""),
+        rosterName1: rosterHit? rosterHit.name1 : "", rosterName2: rosterHit? rosterHit.name2 : "" });
+    }).sort((a,b)=> a.start-b.start || a.codeId.localeCompare(b.codeId));
+  }
+
+  // ================= 렌더 헬퍼 =================
+  function el(tag, attrs, children){
+    const e = document.createElement(tag);
+    if(attrs) Object.entries(attrs).forEach(([k,v])=>{ if(k==='class') e.className=v; else if(k==='html') e.innerHTML=v; else e.setAttribute(k,v); });
+    (children||[]).forEach(c=> e.appendChild(typeof c==='string'? document.createTextNode(c): c));
+    return e;
+  }
+
+  function render(){
+    const app = document.getElementById('app');
+    app.innerHTML = "";
+    app.appendChild(buildHeader());
+    app.appendChild(buildPasteCard());
+    app.appendChild(buildCalendarCard());
+    app.appendChild(buildBatchTableCard());
+    app.appendChild(buildQcCard());
+    app.appendChild(buildRulesCard());
+    app.appendChild(buildNotesCard());
+    app.appendChild(buildOutputCard());
+  }
+
+  function buildHeader(){
+    const wrap = el('div');
+    wrap.appendChild(el('h1', null, ["제조일정 캘린더 → 작성상황 자동화"]));
+    wrap.appendChild(el('div', {class:'sub'}, ["엑셀 월간일정을 그대로 복사해서 붙여넣으면 달력으로 정리하고, 작성상황을 자동 계산합니다."]));
+    wrap.appendChild(el('div', {class:'warnbox', style:'margin-bottom:12px;'}, [
+      "👥 이 링크를 여는 모든 사람이 같은 데이터(배치 목록, 작업조 명단, 카테고리 등록 등)를 보고 함께 수정합니다. 개인 저장이 아니라 팀 공용 저장소입니다."
+    ]));
+    const bar = el('div', {class:'card row'});
+    const ySel = el('select');
+    for(let y=state.year-1;y<=state.year+1;y++){ const o=el('option',{value:y},[y+"년"]); if(y===state.year) o.setAttribute('selected','selected'); ySel.appendChild(o); }
+    const mSel = el('select');
+    for(let m=1;m<=12;m++){ const o=el('option',{value:m},[m+"월"]); if(m===state.month) o.setAttribute('selected','selected'); mSel.appendChild(o); }
+    ySel.onchange = async()=>{ await saveMonth(); state.year=parseInt(ySel.value); await loadMonth(); };
+    mSel.onchange = async()=>{ await saveMonth(); state.month=parseInt(mSel.value); await loadMonth(); };
+    bar.appendChild(el('label',null,["조회 월:"])); bar.appendChild(ySel); bar.appendChild(mSel);
+    const saveBtn = el('button', {id:'saveNowBtn'}, ["💾 지금 저장"]);
+    saveBtn.onclick = async ()=>{
+      saveBtn.disabled = true; saveBtn.textContent = "저장 중...";
+      await saveMonth(); await saveLedgerTemplate();
+      render(); // 배치 목록 등 화면 전체를 최신 상태(날짜순 재정렬 포함)로 다시 그림
+    };
+    bar.appendChild(saveBtn);
+    bar.appendChild(el('div',{style:'flex:1'}));
+    bar.appendChild(el('span',{id:'statusText', class:'status'},["불러오는 중..."]));
+    wrap.appendChild(bar);
+    wrap.appendChild(el('div',{class:'hint', style:'margin-top:-8px; margin-bottom:10px;'},["입력하는 내용은 브라우저에 자동 저장되지만(수 초 이내), '💾 지금 저장'을 누르면 그 자리에서 바로 저장을 확정할 수 있습니다. 같은 브라우저로 다시 열면 저장된 내용이 그대로 불러와집니다."]));
+    return wrap;
+  }
+
+  function buildPasteCard(){
+    const card = el('div', {class:'card'});
+    card.appendChild(el('h2', null, ["📋 엑셀에서 붙여넣기"]));
+    const cols = el('div', {class:'cols3'});
+
+    // 월간일정 붙여넣기
+    const left = el('div');
+    left.appendChild(el('label', null, ["① 월간일정 붙여넣기 (여러 주간 표를 한번에 붙여넣어도 됩니다)"]));
+    const zone1 = el('div', {class:'pastezone', contenteditable:'true', id:'zone1'}, ["여기를 클릭하고 엑셀에서 복사한 월간일정 전체 범위를 Ctrl+V로 붙여넣으세요"]);
+    left.appendChild(zone1);
+    const msg1 = el('div', {id:'msg1'});
+    left.appendChild(msg1);
+    zone1.addEventListener('paste', (e)=>{
+      e.preventDefault();
+      const html = e.clipboardData.getData('text/html');
+      const text = e.clipboardData.getData('text/plain');
+      let grid, hadFormatting = false;
+      if(html && html.includes('<table')){ grid = htmlToGrid(html); hadFormatting = true; }
+      else { grid = textToGrid(text); }
+      zone1.textContent = `(붙여넣기 완료: ${grid?grid.length:0}행 인식됨 — 다시 붙여넣으려면 클릭 후 Ctrl+V)`;
+      zone1.classList.add('filled');
+      if(!grid){ msg1.innerHTML=""; msg1.appendChild(el('div',{class:'errbox'},["표를 인식하지 못했습니다. 엑셀 범위를 다시 복사해서 붙여넣어주세요."])); return; }
+      const result = parseScheduleGrid(grid, state.year, state.month, hadFormatting);
+      state.batches = state.batches.concat(result.batches);
+      function upsertQc(arr, day, items){
+        const dateStr = iso(new Date(state.year,state.month-1,+day));
+        const itemsStr = items.join(', ');
+        const dup = arr.find(r=> r.date===dateStr && r.items===itemsStr);
+        if(!dup) arr.push({date: dateStr, items: itemsStr});
+      }
+      Object.entries(result.qcInter).forEach(([day,items])=> upsertQc(qcInterRows, day, items));
+      saveQcRows();
+      msg1.innerHTML = "";
+      msg1.appendChild(el('div', {class:'warnbox'}, [`✅ 배치 ${result.batches.length}건 인식됨` + (result.warnings.length? " / "+result.warnings.join(" · "):"")]));
+      scheduleSave(); render();
+    });
+    left.appendChild(el('div',{class:'hint'},["※ 여러 주(예: 1일~31일 전체)를 한번에 복사해 붙여넣으면 주 경계를 넘어가는 배치(예: 목요일 시작~다음주 화요일 완료)도 자동으로 이어붙입니다."]));
+    cols.appendChild(left);
+
+    // 작업조 붙여넣기
+    const mid = el('div');
+    mid.appendChild(el('label', null, ["② 해당월 작업조 명단 붙여넣기 (No. / 성명1 / 성명2)"]));
+    const zone2 = el('div', {class:'pastezone', contenteditable:'true', id:'zone2'}, ["여기를 클릭하고 작업조 표(No./성명/성명)를 Ctrl+V로 붙여넣으세요"]);
+    mid.appendChild(zone2);
+    const msg2 = el('div', {id:'msg2'});
+    mid.appendChild(msg2);
+    zone2.addEventListener('paste',(e)=>{
+      e.preventDefault();
+      const html = e.clipboardData.getData('text/html');
+      const text = e.clipboardData.getData('text/plain');
+      const grid = (html && html.includes('<table')) ? htmlToGrid(html) : textToGrid(text);
+      zone2.textContent = `(붙여넣기 완료: ${grid?grid.length:0}행)`;
+      zone2.classList.add('filled');
+      const roster = parseRosterGrid(grid||[]);
+      state.roster = roster;
+      msg2.innerHTML = "";
+      msg2.appendChild(el('div', {class:'warnbox'}, [`✅ 작업조 ${roster.length}건 인식됨 (첫번째 성명→작성자, 두번째 성명→확인자로 매칭됩니다)`]));
+      scheduleSave(); render();
+    });
+    if(state.roster.length){
+      const list = el('div', {style:'margin-top:8px;'});
+      state.roster.forEach(r=> list.appendChild(el('span',{class:'roster-badge'},[`${r.no} ${r.name1}${r.name2?'/'+r.name2:''}`])));
+      mid.appendChild(list);
+    }
+    mid.appendChild(el('div',{class:'hint'},["※ ③번에 붙여넣을 작성상황 대장에 '작성자(1)'/'확인자(1)' 컬럼이 있으면, 배치의 작업조 번호로 여기서 매칭해 자동으로 채웁니다."]));
+    cols.appendChild(mid);
+
+    // 작성상황 대장 붙여넣기
+    const right = el('div');
+    right.appendChild(el('label', null, ["③ 작성상황 대장 붙여넣기 (헤더 행 포함, 한번 설정하면 계속 재사용됩니다)"]));
+    const zone3 = el('div', {class:'pastezone', contenteditable:'true', id:'zone3'}, ["여기를 클릭하고 기존에 쓰시던 작성상황 대장(헤더+기존 데이터)을 Ctrl+V로 붙여넣으세요"]);
+    right.appendChild(zone3);
+    const msg3 = el('div', {id:'msg3'});
+    right.appendChild(msg3);
+    zone3.addEventListener('paste', async (e)=>{
+      e.preventDefault();
+      const html = e.clipboardData.getData('text/html');
+      const text = e.clipboardData.getData('text/plain');
+      const grid = (html && html.includes('<table')) ? htmlToGrid(html) : textToGrid(text);
+      zone3.textContent = `(붙여넣기 완료: ${grid?grid.length:0}행)`;
+      zone3.classList.add('filled');
+      const parsed = parseLedgerGrid(grid||[]);
+      ledgerTemplate = parsed.header;
+      state.ledgerRows = parsed.rows;
+      await saveLedgerTemplate();
+      const matched = ledgerTemplate.filter(h=>h.field).length;
+      msg3.innerHTML = "";
+      msg3.appendChild(el('div', {class:'warnbox'}, [`✅ 컬럼 ${ledgerTemplate.length}개 중 ${matched}개 자동 매칭 · 기존 데이터 ${parsed.rows.length}행 보존`]));
+      scheduleSave(); render();
+    });
+    if(ledgerTemplate.length){
+      const list = el('div', {style:'margin-top:8px; font-size:11px;'});
+      ledgerTemplate.forEach(h=> list.appendChild(el('span',{class:'roster-badge', style: h.field? 'background:#e6f7f3;color:#0b6e61;':'color:var(--sub);'},[h.text + (h.field? ' ✓':' (미매칭)')])));
+      right.appendChild(list);
+    }
+    right.appendChild(el('div',{class:'hint'},["※ 인식된 컬럼(품목명/제조시작일/BPR/로그북/작업조 등)에는 자동 계산값이 채워지고, 작성자·확인자처럼 매칭 안 되는 컬럼은 그대로 빈칸으로 유지되어 기존 서식이 손상되지 않습니다."]));
+    cols.appendChild(right);
+
+    card.appendChild(cols);
+    const clearBtn = el('button', {class:'ghost', style:'margin-top:10px;'}, ["이번 달 배치 전체 지우고 다시 붙여넣기"]);
+    clearBtn.onclick = ()=>{ if(confirm('이번 달에 입력된 배치를 모두 삭제할까요? (QC 시험의뢰일 등록표는 유지됩니다)')){ state.batches=[]; scheduleSave(); render(); } };
+    card.appendChild(clearBtn);
+    return card;
+  }
+
+  function coversHalf(b, dISO, half){
+    if(!(b.start<=dISO && dISO<=b.end)) return false;
+    if(dISO===b.start && (b.startHalf||'am')==='pm' && half==='am') return false;
+    if(dISO===b.end && (b.endHalf||'pm')==='am' && half==='pm') return false;
+    return true;
+  }
+
+  function buildCalendarCard(){
+    const card = el('div', {class:'card'});
+    card.appendChild(el('h2', null, ["📅 "+state.year+"년 "+state.month+"월 월간일정"]));
+
+    const N = daysInMonth(state.year, state.month);
+    const allDays = Array.from({length:N}, (_,i)=> i+1);
+    if(state.batches.length===0){
+      card.appendChild(el('div',{class:'hint'},["아직 배치가 없습니다. 위 ①번에 월간일정을 붙여넣어 주세요."]));
+      return card;
+    }
+
+    // 주 단위(7일)로 쪼갬 - 원본 엑셀처럼 매 주마다 표를 새로 그리고, 그 주에 실제 활동 중인 품목만 행으로 사용
+    const weeks = [];
+    let curWeek = [];
+    allDays.forEach(d=>{
+      const dow = new Date(state.year, state.month-1, d).getDay(); // 0=일,1=월...
+      if(dow===1 && curWeek.length){ weeks.push(curWeek); curWeek=[]; }
+      curWeek.push(d);
+    });
+    if(curWeek.length) weeks.push(curWeek);
+
+    weeks.forEach(weekDays=>{
+      const weekStartISO = iso(new Date(state.year, state.month-1, weekDays[0]));
+      const weekEndISO = iso(new Date(state.year, state.month-1, weekDays[weekDays.length-1]));
+      const activeCodes = new Set();
+      state.batches.forEach(b=>{ if(b.start<=weekEndISO && b.end>=weekStartISO) activeCodes.add(b.codeId); });
+      const rowCodes = Array.from(activeCodes).sort();
+      if(rowCodes.length===0) return;
+
+      const wrap = el('div', {class:'grid-wrap', style:'margin-bottom:14px;'});
+      const table = el('table', {class:'sched'});
+      const dowRow = el('tr', {class:'wk'});
+      dowRow.appendChild(el('th', {class:'corner'}, ["품목"]));
+      weekDays.forEach(d=>{
+        const dt = new Date(state.year, state.month-1, d);
+        dowRow.appendChild(el('th', {colspan:'2', class:'dayhead'}, [`${d} (${wkKr(dt)})`]));
+      });
+      const halfRow = el('tr');
+      halfRow.appendChild(el('th'));
+      weekDays.forEach(()=>{ halfRow.appendChild(el('th', null, ["오전"])); halfRow.appendChild(el('th', null, ["오후"])); });
+      table.appendChild(el('thead', null, [dowRow, halfRow]));
+
+      const tbody = el('tbody');
+      rowCodes.forEach(codeId=>{
+        const tr = el('tr');
+        tr.appendChild(el('td', {class:'rowname'}, [codeId]));
+        weekDays.forEach(d=>{
+          const dt = new Date(state.year, state.month-1, d);
+          const dISO = iso(dt);
+          ['am','pm'].forEach(half=>{
+            const active = state.batches.filter(b=> b.codeId===codeId && coversHalf(b, dISO, half));
+            const td = el('td', {class:'cell'+(isWeekend(dt)?' weekend':'')});
+            if(active.length){
+              active.sort((a,b)=>(a.seq||'').localeCompare(b.seq||''));
+              const isStart = active.some(b=> b.start===dISO && b.startHalf===half);
+              const isIpc = active.some(b=> (b.ipcDates||[]).includes(dISO));
+              let label;
+              if(active.length>1){
+                const first=active[0], last=active[active.length-1];
+                label = `${first.codeId}${first.method}${first.year}${first.monthCode}${first.seq}~${last.monthCode}${last.seq}`;
+              } else {
+                const b=active[0];
+                label = `${b.codeId}${b.method}${b.year}${b.monthCode}${b.seq}`;
+              }
+              const names = resolveTeamNames(active[0].team);
+              const teamTxt = names ? `(${names})` : (active[0].team? `(${active[0].team})`:'');
+              if(isStart) td.classList.add('bold');
+              if(isIpc) td.classList.add('ipc');
+              const span = el('div', {title: label+teamTxt, style:'cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'}, [label+teamTxt]);
+              span.onclick = ()=> highlightBatchRow(active[0].id);
+              td.appendChild(span);
+            }
+            tr.appendChild(td);
+          });
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      card.appendChild(wrap);
+    });
+
+    card.appendChild(el('div', {class:'legend', style:'margin-top:8px; display:flex; gap:14px; font-size:11px; color:var(--sub);'}, [
+      el('span',null,["■ 진한 배경 = 제조시작일"]), el('span',null,["■ 분홍 테두리 = IPC"]),
+    ]));
+    return card;
+  }
+
+  let selectedBatchId = null; // 배치 목록에서 클릭으로 선택한 행(화면 강조용, 저장 안 함)
+
+  function highlightBatchRow(id){
+    selectedBatchId = id;
+    render();
+    setTimeout(()=>{
+      const row = document.getElementById('brow_'+id);
+      if(row) row.scrollIntoView({behavior:'smooth', block:'center'});
+    }, 0);
+  }
+
+  let collapsedSections = { batchList:true, qcInter:true, qcApi:true, qcCategory:true };
+
+  function buildBatchTableCard(){
+    const card = el('div', {class:'card'});
+    const head = el('div',{class:'row'});
+    const toggleBtn = el('button', {class:'ghost'}, [collapsedSections.batchList? "▶ 펼치기":"▼ 접기"]);
+    toggleBtn.onclick = ()=>{ collapsedSections.batchList = !collapsedSections.batchList; render(); };
+    head.appendChild(toggleBtn);
+    head.appendChild(el('h2',{style:'margin:0'},["🧾 배치 목록 (중간 확인용 · 아직 작성상황 서식 아님)"]));
+    const addBtn = el('button', {class:'ghost'}, ["+ 배치 직접 추가"]);
+    addBtn.onclick = ()=>{ state.batches.push({id:uid('b'), codeId:'', base:'', suffix:'', method:'1', year:String(state.year).slice(-2), monthCode:'', seq:'010', team:'', start: iso(new Date(state.year,state.month-1,1)), end: iso(new Date(state.year,state.month-1,1)), startHalf:'am', endHalf:'pm', pv:false, realtime:false, noQc:false, floor2:false, ipcDates:[], startBold:true, note:''}); scheduleSave(); render(); };
+    head.appendChild(addBtn);
+    card.appendChild(head);
+    if(collapsedSections.batchList) return card;
+
+    if(state.batches.length===0){ card.appendChild(el('div',{class:'hint'},["아직 배치가 없습니다. 위 ①번 붙여넣기 영역에 월간일정을 붙여넣어 주세요."])); return card; }
+
+    const table = el('table', {class:'tbl'});
+    const thead = el('tr');
+    ["No.","품목명(코드)","제법+년도","월","순번","시작일","완료일","작업조명","PV","실시간","최종공정물","생산동2층","IPC마지막날","삭제"].forEach(h=> thead.appendChild(el('th',null,[h])));
+    table.appendChild(el('thead',null,[thead]));
+    const tbody = el('tbody');
+    [...state.batches].sort((a,b)=> a.start.localeCompare(b.start)).forEach((b,idx)=>{
+      const tr = el('tr', {id:'brow_'+b.id, class: selectedBatchId===b.id ? 'selected-row':''});
+      const noTd = el('td', {class:'rownum'}, [String(idx+1)]);
+      noTd.onclick = ()=>{ selectedBatchId = (selectedBatchId===b.id)? null : b.id; render(); };
+      tr.appendChild(noTd);
+      function fld(key, type){
+        const td = el('td');
+        const inp = el('input', {type: type||'text', value: b[key]||''});
+        inp.oninput = ()=>{ b[key]=inp.value; if(key==='base'||key==='suffix') b.codeId=(b.base||'')+(b.suffix||''); scheduleSave(); };
+        td.appendChild(inp); return td;
+      }
+      function dateFld(key){
+        const td = el('td', {style:'white-space:nowrap;'});
+        const minus = el('button', {class:'daybtn'}, ["−1"]);
+        const inp = el('input', {type:'date', value: b[key]||'', style:'width:110px;'});
+        const plus = el('button', {class:'daybtn'}, ["+1"]);
+        function shift(n){ b[key] = iso(addDays(fromIso(b[key]), n)); inp.value = b[key]; scheduleSave(); }
+        minus.onclick = ()=> shift(-1);
+        plus.onclick = ()=> shift(1);
+        inp.oninput = ()=>{ b[key]=inp.value; scheduleSave(); };
+        td.appendChild(minus); td.appendChild(inp); td.appendChild(plus);
+        return td;
+      }
+      tr.appendChild(fld('codeId'));
+      const myTd = el('td');
+      const myInp = el('input', {type:'text', value:(b.method||'')+(b.year||''), placeholder:'예: 126'});
+      myInp.oninput = ()=>{ const v=myInp.value.trim(); b.method=v.slice(0,1); b.year=v.slice(1); scheduleSave(); };
+      myTd.appendChild(myInp); tr.appendChild(myTd);
+      tr.appendChild(fld('monthCode')); tr.appendChild(fld('seq'));
+      tr.appendChild(dateFld('start')); tr.appendChild(dateFld('end'));
+      const teamNameTd = el('td', {style:'color:var(--ink);'});
+      const teamNames = resolveTeamNames(b.team);
+      teamNameTd.textContent = teamNames ? teamNames : (b.team ? `${b.team}(명단없음)` : '-');
+      tr.appendChild(teamNameTd);
+      const pvTd = el('td'); const pvChk = el('input',{type:'checkbox'}); pvChk.checked=!!b.pv; pvChk.onchange=()=>{b.pv=pvChk.checked; scheduleSave();}; pvTd.appendChild(pvChk); tr.appendChild(pvTd);
+      const rtTd = el('td'); const rtChk = el('input',{type:'checkbox'}); rtChk.checked=!!b.realtime; rtChk.onchange=()=>{b.realtime=rtChk.checked; scheduleSave();}; rtTd.appendChild(rtChk); tr.appendChild(rtTd);
+      const noQcTd = el('td'); const noQcChk = el('input',{type:'checkbox'}); noQcChk.checked=!!b.noQc; noQcChk.title="최종공정물 / QC Test 없는 중간체 (완료일 기준 그대로 처리)"; noQcChk.onchange=()=>{b.noQc=noQcChk.checked; scheduleSave();}; noQcTd.appendChild(noQcChk); tr.appendChild(noQcTd);
+      const floor2Td = el('td'); const floor2Chk = el('input',{type:'checkbox'}); floor2Chk.checked=!!b.floor2; floor2Chk.title="생산동 2층 로그북 대상 (완료일+2영업일)"; floor2Chk.onchange=()=>{b.floor2=floor2Chk.checked; scheduleSave();}; floor2Td.appendChild(floor2Chk); tr.appendChild(floor2Td);
+      const ipcTd = el('td'); const ipcChk = el('input',{type:'checkbox'}); ipcChk.checked=(b.ipcDates||[]).includes(b.end); ipcChk.onchange=()=>{ b.ipcDates = ipcChk.checked? Array.from(new Set([...(b.ipcDates||[]), b.end])) : (b.ipcDates||[]).filter(x=>x!==b.end); scheduleSave(); }; ipcTd.appendChild(ipcChk); tr.appendChild(ipcTd);
+      const delTd = el('td'); const delBtn = el('button',{class:'danger'},["삭제"]); delBtn.onclick=()=>{ state.batches = state.batches.filter(x=>x.id!==b.id); if(selectedBatchId===b.id) selectedBatchId=null; scheduleSave(); render(); }; delTd.appendChild(delBtn); tr.appendChild(delTd);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    card.appendChild(table);
+    card.appendChild(el('div',{class:'hint'},["※ codeId(품목명) 칸에는 접미 포함 전체 코드(예: BTO01, LA)를 입력하세요. IPC마지막날 체크 시 해당 배치의 완료일에 IPC가 겹친 것으로 계산됩니다."]));
+    card.appendChild(el('div',{class:'hint'},["※ PV·실시간·QC Test 없는 중간체는 서식만으로 구분이 안 되는 항목이라 이 표에서 직접 체크해주세요. PV는 파란 글씨면 자동 체크됩니다."]));
+    card.appendChild(el('div',{class:'hint'},["※ 이 표는 붙여넣은 월간일정에서 배치가 제대로 뽑혔는지 확인/수정하는 중간 단계입니다. 실제 '작성상황' 형식(대장 서식)은 맨 아래 '📋 작성상황 리스트업 결과'에서 ▶ 버튼을 눌러야 확인할 수 있습니다."]));
+    return card;
+  }
+
+  function buildQcCard(){
+    const card = el('div', {class:'card'});
+    const head = el('div', {class:'row'});
+    const toggleBtn = el('button', {class:'ghost'}, [collapsedSections.qcCategory? "▶ 펼치기":"▼ 접기"]);
+    toggleBtn.onclick = ()=>{ collapsedSections.qcCategory = !collapsedSections.qcCategory; render(); };
+    head.appendChild(toggleBtn);
+    head.appendChild(el('h2', {style:'margin:0'}, ["🏷️ 품목 카테고리 & 세부항목 등록 (한 번 등록하면 계속 사용됩니다)"]));
+    card.appendChild(head);
+    if(collapsedSections.qcCategory) return card;
+
+    const table = el('table',{class:'tbl'});
+    table.appendChild(el('tr',null,[el('th',null,["품목(카테고리)"]), el('th',null,["세부항목(쉼표구분)"]), el('th',null,[""])]));
+    qcCategoryRows.forEach((row,idx)=>{
+      const tr = el('tr');
+      const cIn = el('input',{type:'text', value:row.category||'', placeholder:'예: BTO'}); cIn.oninput=()=>{row.category=cIn.value; saveQcCategoryRows();};
+      const dIn = el('input',{type:'text', value:row.details||'', placeholder:'예: BTO03'}); dIn.oninput=()=>{row.details=dIn.value; saveQcCategoryRows();};
+      const delBtn = el('button',{class:'danger'},["삭제"]); delBtn.onclick=()=>{ qcCategoryRows.splice(idx,1); saveQcCategoryRows(); render(); };
+      [cIn,dIn].forEach(i=>{const td=el('td'); td.appendChild(i); tr.appendChild(td);});
+      const dtd=el('td'); dtd.appendChild(delBtn); tr.appendChild(dtd);
+      table.appendChild(tr);
+    });
+    card.appendChild(table);
+    const addBtn = el('button',{class:'ghost', style:'margin-top:6px;'},["+ 행 추가"]);
+    addBtn.onclick=()=>{ qcCategoryRows.push({category:'', details:''}); saveQcCategoryRows(); render(); };
+    card.appendChild(addBtn);
+    card.appendChild(el('div', {class:'hint', style:'margin-top:8px;'}, [
+      "※ 월간일정의 'QC 중간체 시험의뢰일' 행에는 보통 카테고리명(예: BTO)만 적혀있는데, 실제로는 특정 세부항목(예: BTO03)을 가리키는 경우가 많습니다. 여기에 매핑을 등록해두면, 해당 세부항목 배치의 BPR 제출예정일을 그 카테고리의 시험의뢰일(월간일정에서 자동 인식) + 1영업일로 계산합니다. 날짜 자체는 ①번 붙여넣기에서 계속 자동으로 인식되며 화면에는 따로 표시하지 않습니다."
+    ]));
+    return card;
+  }
+
+  let holidayPickerYear = null, holidayPickerMonth = null;
+
+  function toggleHoliday(dISO){
+    const set = holidaySet();
+    if(set.has(dISO)) set.delete(dISO); else set.add(dISO);
+    holidayList = Array.from(set).sort().join(', ');
+    saveHolidays();
+    render();
+  }
+
+  function buildRulesCard(){
+    if(holidayPickerYear===null){ holidayPickerYear = state.year; holidayPickerMonth = state.month; }
+    const card = el('div', {class:'card'});
+    card.appendChild(el('h2', null, ["⚙️ 공휴일 설정"]));
+
+    const nav = el('div', {class:'row'});
+    const prevBtn = el('button', {class:'ghost'}, ["◀"]);
+    const nextBtn = el('button', {class:'ghost'}, ["▶"]);
+    const label = el('div', {style:'font-weight:700; min-width:90px; text-align:center;'}, [`${holidayPickerYear}년 ${holidayPickerMonth}월`]);
+    prevBtn.onclick = ()=>{ holidayPickerMonth--; if(holidayPickerMonth<1){holidayPickerMonth=12; holidayPickerYear--;} render(); };
+    nextBtn.onclick = ()=>{ holidayPickerMonth++; if(holidayPickerMonth>12){holidayPickerMonth=1; holidayPickerYear++;} render(); };
+    nav.appendChild(prevBtn); nav.appendChild(label); nav.appendChild(nextBtn);
+    nav.appendChild(el('div',{class:'hint', style:'margin:0;'},["날짜를 클릭하면 공휴일로 지정/해제됩니다"]));
+    card.appendChild(nav);
+
+    const set = holidaySet();
+    const mini = el('div', {class:'cal', style:'margin-top:8px;'});
+    ["일","월","화","수","목","금","토"].forEach(d=> mini.appendChild(el('div',{class:'dow'},[d])));
+    const N = daysInMonth(holidayPickerYear, holidayPickerMonth);
+    const firstDow = new Date(holidayPickerYear, holidayPickerMonth-1, 1).getDay();
+    for(let i=0;i<firstDow;i++) mini.appendChild(el('div',{class:'day empty'}));
+    for(let d=1; d<=N; d++){
+      const dt = new Date(holidayPickerYear, holidayPickerMonth-1, d);
+      const dISO = iso(dt);
+      const isHol = set.has(dISO);
+      const cell = el('div', {class:'day'+(isWeekend(dt)?' weekend':'')+(isHol?' holiday-cell':''), style:'min-height:44px; cursor:pointer;'}, [String(d)]);
+      cell.onclick = ()=> toggleHoliday(dISO);
+      mini.appendChild(cell);
+    }
+    card.appendChild(mini);
+
+    const list = el('div', {style:'margin-top:10px;'});
+    const sorted = Array.from(set).sort();
+    if(sorted.length===0){ list.appendChild(el('span',{class:'hint'},["등록된 공휴일이 없습니다."])); }
+    sorted.forEach(dISO=>{
+      const tag = el('span', {class:'roster-badge'}, [dISO+' ✕']);
+      tag.style.cursor = 'pointer';
+      tag.onclick = ()=> toggleHoliday(dISO);
+      list.appendChild(tag);
+    });
+    card.appendChild(list);
+
+    card.appendChild(el('div', {class:'hint', style:'margin-top:8px;'},[
+      "※ 모든 영업일 계산은 토·일·공휴일을 전부 제외하고 셉니다. · 로그북: 완료일 그대로(휴일이면 다음 영업일), PV·실시간 품목은 +1영업일 추가, IPC가 완료일과 겹치면 +1영업일 추가. · BPR: PV·실시간 품목은 완료일+1영업일(휴일이면 +2영업일), QC있는 중간체와 겹치면 둘 중 더 늦은 날짜 채택 / QC Test 없는 중간체·원료의약품은 완료일 그대로(휴일이면 다음 영업일) / QC있는 중간체는 QC 중간체 시험의뢰일+1영업일. · PV·실시간·QC Test 없는 중간체는 위 배치 목록 표에서 배치별로 체크합니다."
+    ]));
+    return card;
+  }
+
+  function buildNotesCard(){
+    const card = el('div', {class:'card'});
+    card.appendChild(el('h2', null, ["📝 특이사항"]));
+    const ta = el('textarea',{placeholder:'예: 7/17 정전 예정으로 EDM 오후 작업 취소 등'}); ta.value=state.notes;
+    ta.oninput=()=>{state.notes=ta.value; scheduleSave();};
+    card.appendChild(ta);
+    return card;
+  }
+
+  function matchKey(b){ return `${b.codeId}_${b.monthCode||''}${b.seq||''}`; }
+  function snapKey(){ return `snapshot:${state.year}-${String(state.month).padStart(2,'0')}`; }
+  async function loadSnapshot(){
+    try{ const r = await kvGet(snapKey()); return r && r.value ? JSON.parse(r.value) : null; }
+    catch(e){ return null; }
+  }
+  async function saveSnapshot(rows){
+    const snap = {};
+    rows.forEach(b=>{ snap[matchKey(b)] = { start: iso(b.start), end: iso(b.end), bpr: b.bpr? iso(b.bpr): null, logbook: iso(b.logbook), team: b.team||"" }; });
+    try{ await kvSet(snapKey(), JSON.stringify(snap)); }catch(e){}
+  }
+  function diffAgainst(rows, prevSnap){
+    const diffs = {};
+    rows.forEach(b=>{
+      const key = matchKey(b);
+      const prev = prevSnap ? prevSnap[key] : null;
+      if(!prev){ diffs[key] = "🆕 신규 배치"; return; }
+      const changes = [];
+      const curBpr = b.bpr? iso(b.bpr) : null;
+      if(prev.start !== iso(b.start)) changes.push(`시작일 ${prev.start}→${iso(b.start)}`);
+      if(prev.end !== iso(b.end)) changes.push(`완료일 ${prev.end}→${iso(b.end)}`);
+      if((prev.bpr||'확인필요') !== (curBpr||'확인필요')) changes.push(`BPR ${prev.bpr||'확인필요'}→${curBpr||'확인필요'}`);
+      if(prev.logbook !== iso(b.logbook)) changes.push(`로그북 ${prev.logbook}→${iso(b.logbook)}`);
+      if((prev.team||"") !== (b.team||"")) changes.push(`작업조 ${prev.team||'-'}→${b.team||'-'}`);
+      if(changes.length) diffs[key] = "🔄 " + changes.join(", ");
+    });
+    let removed = [];
+    if(prevSnap){
+      const curKeys = new Set(rows.map(matchKey));
+      removed = Object.keys(prevSnap).filter(k=>!curKeys.has(k));
+    }
+    return { diffs, removed };
+  }
+
+  function buildOutputCard(){
+    const card = el('div', {class:'card'});
+    const head = el('div',{class:'row'});
+    head.appendChild(el('h2',{style:'margin:0'},["📋 작성상황 리스트업 결과"]));
+    const genBtn = el('button',null,["▶ 작성상황 생성 (변경사항 확인)"]);
+    const csvBtn = el('button',{class:'ghost'},["CSV 내보내기"]);
+    const xlsxBtn = el('button',{class:'ghost'},["엑셀 내보내기"]);
+    head.appendChild(genBtn); head.appendChild(csvBtn); head.appendChild(xlsxBtn);
+    card.appendChild(head);
+    if(ledgerTemplate.length){
+      card.appendChild(el('div',{class:'hint'},[`내보내기는 붙여넣어 두신 작성상황 대장 서식(컬럼 ${ledgerTemplate.length}개)을 그대로 따릅니다.`]));
+    }
+    card.appendChild(el('div',{class:'hint'},["※ '작성상황 생성'을 누를 때마다 직전에 생성했던 내용과 비교해서 바뀐 부분(시작일/완료일/BPR/로그북/작업조)을 표시해드립니다."]));
+    const wrap = el('div',{id:'resultWrap', style:'margin-top:10px; overflow-x:auto;'});
+    card.appendChild(wrap);
+    let cache = [];
+    async function gen(){
+      cache = computeRules();
+      const prevSnap = await loadSnapshot();
+      const { diffs, removed } = diffAgainst(cache, prevSnap);
+      renderResult(wrap, cache, diffs, removed, prevSnap);
+      await saveSnapshot(cache);
+    }
+    genBtn.onclick = gen;
+    csvBtn.onclick = ()=> exportCSV(cache.length?cache:computeRules());
+    xlsxBtn.onclick = ()=> exportXLSX(cache.length?cache:computeRules());
+    return card;
+  }
+
+  function fmtOrTBD(d){ return d? iso(d) : "확인필요"; }
+
+  function renderResult(wrap, rows, diffs, removed, prevSnap){
+    wrap.innerHTML = "";
+    diffs = diffs || {}; removed = removed || [];
+    if(rows.length===0){ wrap.appendChild(el('div',{class:'hint'},["표시할 배치가 없습니다."])); return; }
+    if(removed.length){
+      wrap.appendChild(el('div', {class:'errbox'}, [`⚠️ 직전 확인 때는 있었지만 이번엔 목록에 없는 배치: ${removed.join(', ')} (일정이 취소되었거나 붙여넣기에서 빠졌을 수 있습니다)`]));
+    }
+    const table = el('table', {class:'tbl'});
+
+    if(ledgerTemplate.length){
+      wrap.appendChild(el('div', {class:'hint', style:'margin-bottom:6px;'}, ["붙여넣어 두신 작성상황 대장과 동일한 컬럼 구성입니다. 회색 컬럼은 매칭되지 않아 빈칸으로 유지됩니다. 맨 오른쪽 '변경사항'은 화면 확인용이며 내보내기에는 포함되지 않습니다."]));
+      const head = el('tr');
+      ledgerTemplate.forEach(h=> head.appendChild(el('th', {style: h.field? '':'background:#5b6b7c;'}, [h.text])));
+      head.appendChild(el('th', {style:'background:#a1560a;'}, ["변경사항"]));
+      table.appendChild(el('thead',null,[head]));
+      const body = el('tbody');
+      state.ledgerRows.forEach(r=>{
+        const tr = el('tr', {style:'opacity:0.6;'});
+        r.forEach(v=> tr.appendChild(el('td',null,[String(v)])));
+        tr.appendChild(el('td'));
+        body.appendChild(tr);
+      });
+      rows.forEach((b,i)=>{
+        const d = diffs[matchKey(b)];
+        const tr = el('tr', {class: (b.note?'flag':'') + (d?' flag':'')});
+        ledgerTemplate.forEach(h=>{
+          const v = h.field? fieldValueFor(b,h.field,i) : "";
+          tr.appendChild(el('td', {style: h.field? '':'background:#f2f4f7; color:var(--sub);'}, [String(v)]));
+        });
+        tr.appendChild(el('td', {class:'note'}, [d||'-']));
+        body.appendChild(tr);
+      });
+      table.appendChild(body);
+      wrap.appendChild(table);
+      return;
+    }
+
+    wrap.appendChild(el('div', {class:'hint', style:'margin-bottom:6px;'}, ["③번 칸에 기존에 쓰시던 작성상황 대장을 붙여넣으면, 그 서식 그대로 아래에 표시됩니다. (지금은 기본 표시 형식입니다)"]));
+    const head = el('tr');
+    ["No.","품목명","제법+년도","해당월","순번","시작일","완료일","중간체구분","PV","BPR제출예정일","로그북제출예정일","작업조","작업조명","비고","변경사항"].forEach(h=>head.appendChild(el('th',null,[h])));
+    table.appendChild(el('thead',null,[head]));
+    const body = el('tbody');
+    rows.forEach((b,i)=>{
+      const d = diffs[matchKey(b)];
+      const tr = el('tr', {class: (b.note||d)?'flag':''});
+      [i+1, b.codeId, `${b.method}${b.year}`, b.monthCode, b.seq, iso(b.start), iso(b.end), b.qcType, b.pv?'O':'-', fmtOrTBD(b.bpr), iso(b.logbook), b.team, b.rosterName||'-', b.note||'-', d||'-']
+        .forEach(v=> tr.appendChild(el('td',null,[String(v)])));
+      body.appendChild(tr);
+    });
+    table.appendChild(body);
+    wrap.appendChild(table);
+  }
+
+  function fieldValueFor(b, field, idx){
+    switch(field){
+      case 'no': return idx+1;
+      case 'item': return b.codeId;
+      case 'methodYear': return `${b.method}${b.year}`;
+      case 'method': return b.method;
+      case 'year': return b.year;
+      case 'monthCode': return b.monthCode;
+      case 'seq': return b.seq;
+      case 'start': return iso(b.start);
+      case 'end': return iso(b.end);
+      case 'qcType': return b.qcType;
+      case 'pv': return b.pv? 'O':'-';
+      case 'cv': return '-';
+      case 'realtime': return b.realtime? 'O':'-';
+      case 'bpr': return b.bpr? iso(b.bpr):'확인필요';
+      case 'logbook': return iso(b.logbook);
+      case 'floor2': return b.floor2 ? iso(addBD(b.end, 2)) : '';
+      case 'team': return b.team;
+      case 'writer1': return b.rosterName1||'';
+      case 'confirmer1': return b.rosterName2||'';
+      case 'writer2': return '';
+      case 'confirmer2': return '';
+      case 'note': return b.note||'';
+      default: return '';
+    }
+  }
+
+  function toRows(batches){
+    if(ledgerTemplate.length){
+      const header = ledgerTemplate.map(h=>h.text);
+      const newRows = batches.map((b,i)=> ledgerTemplate.map(h=> h.field? fieldValueFor(b,h.field,i) : ""));
+      return [header, ...state.ledgerRows, ...newRows];
+    }
+    const header = ["No.","품목명","제법+년도","해당월","순번","시작일","완료일","품질시험진행중간체","PV여부확인","CV여부확인","실시간품목","BPR제출예정일","로그북제출예정일","작업조","작업조명","비고"];
+    return [header, ...batches.map((b,i)=>[
+      i+1, b.codeId, `${b.method}${b.year}`, b.monthCode, b.seq, iso(b.start), iso(b.end),
+      b.qcType, b.pv?'O':'-', '-', b.realtime?'O':'-',
+      b.bpr?iso(b.bpr):'확인필요', iso(b.logbook), b.team, b.rosterName||'', b.note||''
+    ])];
+  }
+  function exportCSV(batches){
+    const rows = toRows(batches);
+    const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const blob = new Blob(["\uFEFF"+csv], {type:'text/csv;charset=utf-8;'});
+    const a = document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download = `작성상황_${state.year}-${String(state.month).padStart(2,'0')}.csv`; a.click();
+  }
+  function exportXLSX(batches){
+    const rows = toRows(batches);
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "작성상황");
+    XLSX.writeFile(wb, `작성상황_${state.year}-${String(state.month).padStart(2,'0')}.xlsx`);
+  }
+
+  loadLedgerTemplate().then(loadMonth);
+})();
+</script>
+
+</body>
+</html>
