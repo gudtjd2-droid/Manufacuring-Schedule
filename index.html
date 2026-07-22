@@ -51,7 +51,6 @@
   .warnbox{background:var(--amber-bg); border:1px solid #f0d38a; border-radius:8px; padding:8px 10px; font-size:11.5px; color:#7a5a0a; margin-top:8px;}
   .errbox{background:var(--red-bg); border:1px solid #e7b3ac; border-radius:8px; padding:8px 10px; font-size:11.5px; color:#8a3527; margin-top:8px;}
 
-  /* 캘린더 */
   .cal{display:grid; grid-template-columns:repeat(7,1fr); gap:6px;}
   .cal .dow{text-align:center; font-size:11px; font-weight:700; color:var(--sub); padding-bottom:2px;}
   .cal .day{background:#fbfcfe; border:1px solid var(--line); border-radius:8px; min-height:120px; padding:5px 6px; font-size:11px;}
@@ -191,7 +190,7 @@
     }
     return codes.length ? codes : null;
   }
-  function parseList(str){ return (str||"").split(/[,\s]+/).map(s=>s.trim()).filter(Boolean); }
+  function parseList(str){ return (str||"").split(/[,\s]+/).map(s=>s.trim().replace(/\([^)]*\)\s*$/,'')).filter(Boolean); }
   function uid(p){ return p+Math.random().toString(36).slice(2,9); }
 
   function colorIsBlueish(rgb){
@@ -375,7 +374,7 @@
         for(let c=dataStartCol; c<grid[r].length; c++){
           const day = colDay[c]; if(!day) continue;
           const cellInfo = grid[r][c] || {};
-          if(!cellInfo.text) continue;
+          if(!cellInfo.text){ if(cur){ allBatches.push(cur); cur=null; } continue; }
           const half = ((c - dataStartCol) % 2 === 0) ? 'am' : 'pm';
           const rangeCodes = expandRangeCode(cellInfo.text);
           const codesInCell = rangeCodes || (parseCode(cellInfo.text) ? [parseCode(cellInfo.text)] : []);
@@ -586,6 +585,12 @@
     return best;
   }
 
+  function bizDaysInRange(start, end){
+    let count = 0, d = new Date(start);
+    while(d <= end){ if(!isNonBiz(d)) count++; d = addDays(d, 1); }
+    return count;
+  }
+
   function computeRules(){
     return state.batches.map(b=>{
       const start = fromIso(b.start), effEnd = fromIso(b.end);
@@ -605,7 +610,9 @@
 
       let bpr;
       if(isSpecial){
-        const specialDate = specialBprDate(effEnd);
+        let extra = isNonBiz(effEnd) ? 2 : 1;
+        if(ipcOnLastDay) extra = Math.max(extra, 2);
+        const specialDate = addBD(effEnd, extra);
         if(isMid && qcType==="O"){
           const qcBased = addBD(qcDate, 1);
           bpr = specialDate > qcBased ? specialDate : qcBased;
@@ -616,18 +623,31 @@
         }
       } else if(isMid && qcType==="O"){
         bpr = addBD(qcDate, 1);
+        if(ipcOnLastDay) bpr = addBD(bpr, 1);
       } else if(isMid && qcType==="?"){
         bpr = null;
       } else {
         bpr = generalBprDate(effEnd);
+        if(ipcOnLastDay) bpr = addBD(bpr, 1);
       }
-      if(ipcOnLastDay && bpr){ bpr = addBD(bpr,1); }
+
+      const isEDM = (b.base||b.codeId||'').toUpperCase()==='EDM';
+      if(!isEDM && bizDaysInRange(start, effEnd)===1){
+        const floorDate = addBD(start, 2);
+        if(!bpr || floorDate > bpr){ bpr = floorDate; note.push("근무일 1일 최소보장으로 제출일 조정"); }
+      }
 
       let logbook = effEnd;
       if(isNonBiz(logbook)) logbook = nextBD(logbook);
-      if(isSpecial) logbook = addBD(logbook, 1);
-      if(ipcOnLastDay) logbook = addBD(logbook, 1);
-      if(ipcOnLastDay) note.push("IPC가 완료일과 겹쳐 +1영업일");
+      let logExtra = 0;
+      if(isSpecial) logExtra = 1;
+      if(ipcOnLastDay) logExtra = Math.max(logExtra, 1);
+      if(logExtra) logbook = addBD(logbook, logExtra);
+      if(ipcOnLastDay) note.push("IPC가 완료일과 겹쳐 제출일 조정");
+      if(!isEDM && bizDaysInRange(start, effEnd)===1){
+        const floorDate = addBD(start, 2);
+        if(floorDate > logbook) logbook = floorDate;
+      }
 
       if(b.startBold===false) note.push("시작일 굵게 표시 확인 필요(이월 배치일 수 있음)");
 
@@ -885,6 +905,7 @@
   }
 
   let selectedBatchId = null;
+  let selectedResultId = null;
 
   function highlightBatchRow(id){
     selectedBatchId = id;
@@ -954,7 +975,7 @@
       const pvTd = el('td'); const pvChk = el('input',{type:'checkbox'}); pvChk.checked=!!b.pv; pvChk.onchange=()=>{b.pv=pvChk.checked; scheduleSave();}; pvTd.appendChild(pvChk); tr.appendChild(pvTd);
       const rtTd = el('td'); const rtChk = el('input',{type:'checkbox'}); rtChk.checked=!!b.realtime; rtChk.onchange=()=>{b.realtime=rtChk.checked; scheduleSave();}; rtTd.appendChild(rtChk); tr.appendChild(rtTd);
       const noQcTd = el('td'); const noQcChk = el('input',{type:'checkbox'}); noQcChk.checked=!!b.noQc; noQcChk.title="최종공정물 / QC Test 없는 중간체 (완료일 기준 그대로 처리)"; noQcChk.onchange=()=>{b.noQc=noQcChk.checked; scheduleSave();}; noQcTd.appendChild(noQcChk); tr.appendChild(noQcTd);
-      const floor2Td = el('td'); const floor2Chk = el('input',{type:'checkbox'}); floor2Chk.checked=!!b.floor2; floor2Chk.title="생산동 2층 로그북 대상 (완료일+2영업일)"; floor2Chk.onchange=()=>{b.floor2=floor2Chk.checked; scheduleSave();}; floor2Td.appendChild(floor2Chk); tr.appendChild(floor2Td);
+      const floor2Td = el('td'); const floor2Chk = el('input',{type:'checkbox'}); floor2Chk.checked=!!b.floor2; floor2Chk.title="생산동 2층 로그북 대상 (시작일+2영업일)"; floor2Chk.onchange=()=>{b.floor2=floor2Chk.checked; scheduleSave();}; floor2Td.appendChild(floor2Chk); tr.appendChild(floor2Td);
       const ipcTd = el('td'); const ipcChk = el('input',{type:'checkbox'}); ipcChk.checked=(b.ipcDates||[]).includes(b.end); ipcChk.onchange=()=>{ b.ipcDates = ipcChk.checked? Array.from(new Set([...(b.ipcDates||[]), b.end])) : (b.ipcDates||[]).filter(x=>x!==b.end); scheduleSave(); }; ipcTd.appendChild(ipcChk); tr.appendChild(ipcTd);
       const delTd = el('td'); const delBtn = el('button',{class:'danger'},["삭제"]); delBtn.onclick=()=>{ state.batches = state.batches.filter(x=>x.id!==b.id); if(selectedBatchId===b.id) selectedBatchId=null; scheduleSave(); render(); }; delTd.appendChild(delBtn); tr.appendChild(delTd);
       tbody.appendChild(tr);
@@ -1051,7 +1072,7 @@
     card.appendChild(list);
 
     card.appendChild(el('div', {class:'hint', style:'margin-top:8px;'},[
-      "※ 모든 영업일 계산은 토·일·공휴일을 전부 제외하고 셉니다. · 로그북: 완료일 그대로(휴일이면 다음 영업일), PV·실시간 품목은 +1영업일 추가, IPC가 완료일과 겹치면 +1영업일 추가. · BPR: PV·실시간 품목은 완료일+1영업일(휴일이면 +2영업일), QC있는 중간체와 겹치면 둘 중 더 늦은 날짜 채택 / QC Test 없는 중간체·원료의약품은 완료일 그대로(휴일이면 다음 영업일) / QC있는 중간체는 QC 중간체 시험의뢰일+1영업일. · PV·실시간·QC Test 없는 중간체는 위 배치 목록 표에서 배치별로 체크합니다."
+      "※ 모든 영업일 계산은 토·일·공휴일을 전부 제외하고 셉니다. · 로그북: 완료일 그대로(휴일이면 다음 영업일), PV·실시간 품목은 +1영업일 추가, IPC가 완료일과 겹치면 +1영업일 추가(스택 안 함, 최대 +1). · BPR: PV·실시간 품목은 완료일+1영업일(휴일이면 +2영업일), IPC 겹쳐도 최대 +2영업일까지만 / QC Test 없는 중간체·원료의약품은 완료일 그대로(휴일이면 다음 영업일) / QC있는 중간체는 QC 중간체 시험의뢰일+1영업일. · EDM 제외, 제조기간 내 근무일이 1일뿐이면 BPR·로그북 모두 시작일+2영업일 최소 보장. · PV·실시간·QC Test 없는 중간체는 위 배치 목록 표에서 배치별로 체크합니다."
     ]));
     return card;
   }
@@ -1154,7 +1175,9 @@
       });
       rows.forEach((b,i)=>{
         const d = diffs[matchKey(b)];
-        const tr = el('tr', {class: (b.note?'flag':'') + (d?' flag':'')});
+        const tr = el('tr', {class: (b.note?'flag':'') + (d?' flag':'') + (selectedResultId===b.id?' selected-row':'')});
+        tr.style.cursor = 'pointer';
+        tr.onclick = ()=>{ selectedResultId = (selectedResultId===b.id)? null : b.id; renderResult(wrap, rows, diffs, removed, prevSnap); };
         ledgerTemplate.forEach(h=>{
           const v = h.field? fieldValueFor(b,h.field,i) : "";
           tr.appendChild(el('td', {style: h.field? '':'background:#f2f4f7; color:var(--sub);'}, [String(v)]));
@@ -1174,7 +1197,9 @@
     const body = el('tbody');
     rows.forEach((b,i)=>{
       const d = diffs[matchKey(b)];
-      const tr = el('tr', {class: (b.note||d)?'flag':''});
+      const tr = el('tr', {class: ((b.note||d)?'flag':'') + (selectedResultId===b.id?' selected-row':'')});
+      tr.style.cursor = 'pointer';
+      tr.onclick = ()=>{ selectedResultId = (selectedResultId===b.id)? null : b.id; renderResult(wrap, rows, diffs, removed, prevSnap); };
       [i+1, b.codeId, `${b.method}${b.year}`, b.monthCode, b.seq, iso(b.start), iso(b.end), b.qcType, b.pv?'O':'-', fmtOrTBD(b.bpr), iso(b.logbook), b.team, b.rosterName||'-', b.note||'-', d||'-']
         .forEach(v=> tr.appendChild(el('td',null,[String(v)])));
       body.appendChild(tr);
@@ -1200,7 +1225,7 @@
       case 'realtime': return b.realtime? 'O':'-';
       case 'bpr': return b.bpr? iso(b.bpr):'확인필요';
       case 'logbook': return iso(b.logbook);
-      case 'floor2': return b.floor2 ? iso(addBD(b.end, 2)) : '';
+      case 'floor2': return b.floor2 ? iso(addBD(b.start, 2)) : '';
       case 'team': return b.team;
       case 'writer1': return b.rosterName1||'';
       case 'confirmer1': return b.rosterName2||'';
