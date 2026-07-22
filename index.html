@@ -105,7 +105,6 @@
 (function(){
   "use strict";
 
-  // ================= 공용 저장소 설정 (Supabase) =================
   const SUPABASE_URL = "https://lyhpdieccxflvqdepkni.supabase.co";
   const SUPABASE_ANON_KEY = "sb_publishable_JD4r_Q7c7Rfk7MJ3BZ8i2w_BoWmgjtt";
   const KV_TABLE = "kv_store";
@@ -113,9 +112,7 @@
   async function kvGet(key){
     try{
       const url = `${SUPABASE_URL}/rest/v1/${KV_TABLE}?key=eq.${encodeURIComponent(key)}&select=value`;
-      const res = await fetch(url, {
-        headers: { apikey: SUPABASE_ANON_KEY }
-      });
+      const res = await fetch(url, { headers: { apikey: SUPABASE_ANON_KEY } });
       if(!res.ok) return null;
       const rows = await res.json();
       return (rows && rows.length) ? { value: rows[0].value } : null;
@@ -127,11 +124,7 @@
       const url = `${SUPABASE_URL}/rest/v1/${KV_TABLE}`;
       const res = await fetch(url, {
         method: "POST",
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          "Content-Type": "application/json",
-          Prefer: "resolution=merge-duplicates"
-        },
+        headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
         body: JSON.stringify([{ key, value }])
       });
       if(!res.ok) console.error("kvSet 실패", key, await res.text());
@@ -139,8 +132,7 @@
     }catch(e){ console.error("kvSet 실패", key, e); return false; }
   }
 
-  // ================= 날짜/영업일 유틸 =================
-  let holidayList = ""; // 전역 공휴일 목록(쉼표구분 YYYY-MM-DD), 월과 무관하게 재사용
+  let holidayList = "";
   function holidaySet(){ return new Set(parseList(holidayList)); }
   function isWeekend(d){ const w=d.getDay(); return w===0||w===6; }
   function isHoliday(d){ return holidaySet().has(iso(d)); }
@@ -154,7 +146,6 @@
   function wkKr(d){ return ['일','월','화','수','목','금','토'][d.getDay()]; }
   function daysInMonth(y,m){ return new Date(y,m,0).getDate(); }
 
-  // ================= 제조번호 파싱 =================
   function parseCode(raw){
     if(!raw) return null;
     let text = String(raw).trim();
@@ -203,7 +194,6 @@
   function parseList(str){ return (str||"").split(/[,\s]+/).map(s=>s.trim()).filter(Boolean); }
   function uid(p){ return p+Math.random().toString(36).slice(2,9); }
 
-  // ================= HTML 표 -> 2D 그리드 (병합 셀 반영) =================
   function colorIsBlueish(rgb){
     if(!rgb) return false;
     const m = rgb.match(/(\d+),\s*(\d+),\s*(\d+)/); if(!m) return false;
@@ -270,7 +260,6 @@
     return text.split(/\r?\n/).filter(l=>l.length).map(line=> line.split('\t').map(t=>({text:t.trim(), bold:false, blue:false, pink:false})));
   }
 
-  // ================= 붙여넣은 월간일정 그리드 -> 배치/QC 추출 =================
   const BLOCK_MARKERS = ["원료 칭량","원료칭량","pH 측정","QC IPC","특이사항"];
   const QC_INTER_MARK = "QC 중간체";
   const QC_API_MARK = "QC 원료의약품";
@@ -298,6 +287,8 @@
     });
     return order.map(k=>map[k]);
   }
+
+  function mergeContinuations(batches){
     let changed = true;
     while(changed){
       changed = false;
@@ -414,7 +405,7 @@
     });
 
     allBatches = mergeContinuations(allBatches);
-  allBatches = dedupeBatches(allBatches);
+    allBatches = dedupeBatches(allBatches);
 
     allBatches.forEach(b=>{
       if(b.blockIdx===0 && b.possibleContinuation){
@@ -458,7 +449,6 @@
     return parts.join('&');
   }
 
-  // ================= 작성상황 대장(실사용 서식) 붙여넣기 -> 헤더 매핑 =================
   const FIELD_KEYWORDS = [
     ['제법+년도','methodYear'], ['제법','method'], ['년도','year'],
     ['해당월순번','seq'], ['순번','seq'], ['일련번호','seq'],
@@ -497,7 +487,6 @@
     return { header, rows };
   }
 
-  // ================= 상태 & 저장 =================
   const today = new Date();
   const state = {
     year: today.getFullYear(), month: today.getMonth()+1,
@@ -551,7 +540,7 @@
   async function loadMonth(){
     try{
       const res = await kvGet(storageKey());
-      if(res && res.value){ Object.assign(state, JSON.parse(res.value)); state.batches = dedupeBatches(state.batches); setStatus("불러옴 · "+storageKey()); }
+      if(res && res.value){ Object.assign(state, JSON.parse(res.value)); setStatus("불러옴 · "+storageKey()); }
       else { resetMonth(); setStatus("새 월"); }
     }catch(e){ resetMonth(); setStatus("새 월"); }
     render();
@@ -578,7 +567,6 @@
     e.style.fontWeight = kind ? '700' : '400';
   }
 
-  // ================= 규칙 계산 =================
   function categoryFor(codeId){
     const hit = qcCategoryRows.find(r=> parseList(r.details).includes(codeId));
     return hit ? hit.category.trim() : null;
@@ -651,7 +639,6 @@
     }).sort((a,b)=> a.start-b.start || a.codeId.localeCompare(b.codeId));
   }
 
-  // ================= 렌더 헬퍼 =================
   function el(tag, attrs, children){
     const e = document.createElement(tag);
     if(attrs) Object.entries(attrs).forEach(([k,v])=>{ if(k==='class') e.className=v; else if(k==='html') e.innerHTML=v; else e.setAttribute(k,v); });
