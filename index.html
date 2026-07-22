@@ -282,7 +282,22 @@
     return after+1;
   }
 
-  function mergeContinuations(batches){
+  function dedupeBatches(batches){
+    const map = {};
+    const order = [];
+    batches.forEach(b=>{
+      const key = `${b.codeId}_${b.monthCode}_${b.seq}`;
+      if(!map[key]){ map[key] = Object.assign({}, b); order.push(key); }
+      else {
+        const existing = map[key];
+        if(b.start < existing.start){ existing.start = b.start; existing.startHalf = b.startHalf; existing.startBold = b.startBold; existing.possibleContinuation = b.possibleContinuation; }
+        if(b.end > existing.end){ existing.end = b.end; existing.endHalf = b.endHalf; }
+        existing.ipcDates = Array.from(new Set([...(existing.ipcDates||[]), ...(b.ipcDates||[])]));
+        if(!existing.team && b.team) existing.team = b.team;
+      }
+    });
+    return order.map(k=>map[k]);
+  }
     let changed = true;
     while(changed){
       changed = false;
@@ -399,6 +414,7 @@
     });
 
     allBatches = mergeContinuations(allBatches);
+  allBatches = dedupeBatches(allBatches);
 
     allBatches.forEach(b=>{
       if(b.blockIdx===0 && b.possibleContinuation){
@@ -535,7 +551,7 @@
   async function loadMonth(){
     try{
       const res = await kvGet(storageKey());
-      if(res && res.value){ Object.assign(state, JSON.parse(res.value)); setStatus("불러옴 · "+storageKey()); }
+      if(res && res.value){ Object.assign(state, JSON.parse(res.value)); state.batches = dedupeBatches(state.batches); setStatus("불러옴 · "+storageKey()); }
       else { resetMonth(); setStatus("새 월"); }
     }catch(e){ resetMonth(); setStatus("새 월"); }
     render();
@@ -707,7 +723,7 @@
       zone1.classList.add('filled');
       if(!grid){ msg1.innerHTML=""; msg1.appendChild(el('div',{class:'errbox'},["표를 인식하지 못했습니다. 엑셀 범위를 다시 복사해서 붙여넣어주세요."])); return; }
       const result = parseScheduleGrid(grid, state.year, state.month, hadFormatting);
-      state.batches = state.batches.concat(result.batches);
+      state.batches = dedupeBatches(state.batches.concat(result.batches));
       function upsertQc(arr, day, items){
         const dateStr = iso(new Date(state.year,state.month-1,+day));
         const itemsStr = items.join(', ');
