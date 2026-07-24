@@ -610,21 +610,19 @@
       }
 
       let bpr;
-      if(isSpecial){
-        let extra = isNonBiz(effEnd) ? 2 : 1;
-        if(ipcOnLastDay) extra = Math.max(extra, 2);
-        const specialDate = addBD(effEnd, extra);
-        if(isMid && qcType==="O"){
-          const qcBased = addBD(qcDate, 1);
+      const weekendExtra = isNonBiz(effEnd) ? 2 : 1;
+      if(isMid && qcType==="O"){
+        const qcBased = addBD(qcDate, 1);
+        if(isSpecial){
+          const specialDate = addBD(effEnd, weekendExtra);
           bpr = specialDate > qcBased ? specialDate : qcBased;
-        } else if(isMid && qcType==="?"){
-          bpr = specialDate;
         } else {
-          bpr = specialDate;
+          bpr = qcBased;
         }
-      } else if(isMid && qcType==="O"){
-        bpr = addBD(qcDate, 1);
-        if(ipcOnLastDay) bpr = addBD(bpr, 1);
+      } else if(isSpecial){
+        let extra = weekendExtra;
+        if(ipcOnLastDay) extra = Math.max(extra, 2);
+        bpr = addBD(effEnd, extra);
       } else if(isMid && qcType==="?"){
         bpr = null;
       } else {
@@ -1081,7 +1079,7 @@
     card.appendChild(list);
 
     card.appendChild(el('div', {class:'hint', style:'margin-top:8px;'},[
-      "※ 모든 영업일 계산은 토·일·공휴일을 전부 제외하고 셉니다. · 로그북: 완료일 그대로(휴일이면 다음 영업일), PV·실시간 품목은 +1영업일 추가, IPC가 완료일과 겹치면 +1영업일 추가. · BPR: PV·실시간 품목은 완료일+1영업일(휴일이면 +2영업일), QC있는 중간체와 겹치면 둘 중 더 늦은 날짜 채택 / QC Test 없는 중간체·원료의약품은 완료일 그대로(휴일이면 다음 영업일) / QC있는 중간체는 QC 중간체 시험의뢰일+1영업일. · PV·실시간·QC Test 없는 중간체는 위 배치 목록 표에서 배치별로 체크합니다."
+      "※ 모든 영업일 계산은 토·일·공휴일을 전부 제외하고 셉니다. · 로그북: 완료일 그대로(휴일이면 다음 영업일), PV·실시간 품목은 +1영업일 추가, IPC가 완료일과 겹치면 +1영업일 추가(스택 안 함, 최대 +1). · BPR: QC있는 중간체는 QC 중간체 시험의뢰일+1영업일이 기준이며 IPC는 영향을 주지 않습니다 (PV·실시간과 겹치면 주말보정과 비교해 더 늦은 날짜 채택) / PV·실시간 단독인 경우 완료일+1영업일(휴일이면 +2영업일), IPC 겹쳐도 최대 +2영업일까지만 / QC Test 없는 중간체·원료의약품은 완료일 그대로(휴일이면 다음 영업일, IPC 겹치면 +1영업일). · EDM 제외, 제조기간 내 근무일이 1일뿐이면 BPR·로그북 모두 시작일+2영업일 최소 보장. · PV·실시간·QC Test 없는 중간체는 위 배치 목록 표에서 배치별로 체크합니다."
     ]));
     return card;
   }
