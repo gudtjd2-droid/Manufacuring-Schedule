@@ -144,6 +144,7 @@
   function fromIso(s){ if(!s) return null; const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); }
   function wkKr(d){ return ['일','월','화','수','목','금','토'][d.getDay()]; }
   function daysInMonth(y,m){ return new Date(y,m,0).getDate(); }
+  function monthLetter(m){ return String.fromCharCode(64+m); } // 1월=A, 7월=G, 12월=L
 
   function parseCode(raw){
     if(!raw) return null;
@@ -933,12 +934,19 @@
 
     if(state.batches.length===0){ card.appendChild(el('div',{class:'hint'},["아직 배치가 없습니다. 위 ①번 붙여넣기 영역에 월간일정을 붙여넣어 주세요."])); return card; }
 
+    const curLetter = monthLetter(state.month);
+    const visibleBatches = state.batches.filter(b=> b.monthCode===curLetter);
+    const hiddenCount = state.batches.length - visibleBatches.length;
+    if(hiddenCount>0){
+      card.appendChild(el('div',{class:'warnbox'},[`⚠️ 배치번호 월(monthCode)이 '${curLetter}'(${state.month}월)와 다른 배치 ${hiddenCount}건은 숨겨져 있습니다.`]));
+    }
+
     const table = el('table', {class:'tbl'});
     const thead = el('tr');
     ["No.","품목명(코드)","제법+년도","월","순번","시작일","완료일","작업조명","PV","CV","실시간","최종공정물","생산동2층","IPC마지막날","삭제"].forEach(h=> thead.appendChild(el('th',null,[h])));
     table.appendChild(el('thead',null,[thead]));
     const tbody = el('tbody');
-    [...state.batches].sort((a,b)=> a.start.localeCompare(b.start)).forEach((b,idx)=>{
+    [...visibleBatches].sort((a,b)=> a.start.localeCompare(b.start)).forEach((b,idx)=>{
       const tr = el('tr', {id:'brow_'+b.id, class: selectedBatchId===b.id ? 'selected-row':''});
       const noTd = el('td', {class:'rownum'}, [String(idx+1)]);
       noTd.onclick = ()=>{ selectedBatchId = (selectedBatchId===b.id)? null : b.id; render(); };
@@ -1073,7 +1081,7 @@
     card.appendChild(list);
 
     card.appendChild(el('div', {class:'hint', style:'margin-top:8px;'},[
-      "※ 모든 영업일 계산은 토·일·공휴일을 전부 제외하고 셉니다. · 로그북: 완료일 그대로(휴일이면 다음 영업일), PV·실시간 품목은 +1영업일 추가, IPC가 완료일과 겹치면 +1영업일 추가(스택 안 함, 최대 +1). · BPR: PV·실시간 품목은 완료일+1영업일(휴일이면 +2영업일), IPC 겹쳐도 최대 +2영업일까지만 / QC Test 없는 중간체·원료의약품은 완료일 그대로(휴일이면 다음 영업일) / QC있는 중간체는 QC 중간체 시험의뢰일+1영업일. · EDM 제외, 제조기간 내 근무일이 1일뿐이면 BPR·로그북 모두 시작일+2영업일 최소 보장. · PV·실시간·QC Test 없는 중간체는 위 배치 목록 표에서 배치별로 체크합니다."
+      "※ 모든 영업일 계산은 토·일·공휴일을 전부 제외하고 셉니다. · 로그북: 완료일 그대로(휴일이면 다음 영업일), PV·실시간 품목은 +1영업일 추가, IPC가 완료일과 겹치면 +1영업일 추가. · BPR: PV·실시간 품목은 완료일+1영업일(휴일이면 +2영업일), QC있는 중간체와 겹치면 둘 중 더 늦은 날짜 채택 / QC Test 없는 중간체·원료의약품은 완료일 그대로(휴일이면 다음 영업일) / QC있는 중간체는 QC 중간체 시험의뢰일+1영업일. · PV·실시간·QC Test 없는 중간체는 위 배치 목록 표에서 배치별로 체크합니다."
     ]));
     return card;
   }
