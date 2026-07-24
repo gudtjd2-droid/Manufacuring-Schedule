@@ -600,7 +600,7 @@
       const isSpecial = !!(b.pv || b.realtime);
       const ipcOnLastDay = (b.ipcDates||[]).includes(iso(effEnd));
 
-      let qcType = "-", qcDate = null;
+      let qcType = "X", qcDate = null;
       if(b.noQc){
         qcType = "X";
       } else if(isMid){
@@ -926,7 +926,7 @@
     head.appendChild(toggleBtn);
     head.appendChild(el('h2',{style:'margin:0'},["🧾 배치 목록 (중간 확인용 · 아직 작성상황 서식 아님)"]));
     const addBtn = el('button', {class:'ghost'}, ["+ 배치 직접 추가"]);
-    addBtn.onclick = ()=>{ state.batches.push({id:uid('b'), codeId:'', base:'', suffix:'', method:'1', year:String(state.year).slice(-2), monthCode:'', seq:'010', team:'', start: iso(new Date(state.year,state.month-1,1)), end: iso(new Date(state.year,state.month-1,1)), startHalf:'am', endHalf:'pm', pv:false, realtime:false, noQc:false, floor2:false, ipcDates:[], startBold:true, note:''}); scheduleSave(); render(); };
+    addBtn.onclick = ()=>{ state.batches.push({id:uid('b'), codeId:'', base:'', suffix:'', method:'1', year:String(state.year).slice(-2), monthCode:'', seq:'010', team:'', start: iso(new Date(state.year,state.month-1,1)), end: iso(new Date(state.year,state.month-1,1)), startHalf:'am', endHalf:'pm', pv:false, cv:false, realtime:false, noQc:false, floor2:false, ipcDates:[], startBold:true, note:''}); scheduleSave(); render(); };
     head.appendChild(addBtn);
     card.appendChild(head);
     if(collapsedSections.batchList) return card;
@@ -935,7 +935,7 @@
 
     const table = el('table', {class:'tbl'});
     const thead = el('tr');
-    ["No.","품목명(코드)","제법+년도","월","순번","시작일","완료일","작업조명","PV","실시간",["QC Test 없는 중간체","최종공정물"],"생산동2층","IPC마지막날","삭제"].forEach(h=> thead.appendChild(el('th',null, Array.isArray(h)? [h[0], el('br'), h[1]] : [h])));
+    ["No.","품목명(코드)","제법+년도","월","순번","시작일","완료일","작업조명","PV","CV","실시간","최종공정물","생산동2층","IPC마지막날","삭제"].forEach(h=> thead.appendChild(el('th',null,[h])));
     table.appendChild(el('thead',null,[thead]));
     const tbody = el('tbody');
     [...state.batches].sort((a,b)=> a.start.localeCompare(b.start)).forEach((b,idx)=>{
@@ -973,6 +973,7 @@
       teamNameTd.textContent = teamNames ? teamNames : (b.team ? `${b.team}(명단없음)` : '-');
       tr.appendChild(teamNameTd);
       const pvTd = el('td'); const pvChk = el('input',{type:'checkbox'}); pvChk.checked=!!b.pv; pvChk.onchange=()=>{b.pv=pvChk.checked; scheduleSave();}; pvTd.appendChild(pvChk); tr.appendChild(pvTd);
+      const cvTd = el('td'); const cvChk = el('input',{type:'checkbox'}); cvChk.checked=!!b.cv; cvChk.title="CV여부확인 (제출일에는 영향 없음, 작성상황에 O로만 표시)"; cvChk.onchange=()=>{b.cv=cvChk.checked; scheduleSave();}; cvTd.appendChild(cvChk); tr.appendChild(cvTd);
       const rtTd = el('td'); const rtChk = el('input',{type:'checkbox'}); rtChk.checked=!!b.realtime; rtChk.onchange=()=>{b.realtime=rtChk.checked; scheduleSave();}; rtTd.appendChild(rtChk); tr.appendChild(rtTd);
       const noQcTd = el('td'); const noQcChk = el('input',{type:'checkbox'}); noQcChk.checked=!!b.noQc; noQcChk.title="최종공정물 / QC Test 없는 중간체 (완료일 기준 그대로 처리)"; noQcChk.onchange=()=>{b.noQc=noQcChk.checked; scheduleSave();}; noQcTd.appendChild(noQcChk); tr.appendChild(noQcTd);
       const floor2Td = el('td'); const floor2Chk = el('input',{type:'checkbox'}); floor2Chk.checked=!!b.floor2; floor2Chk.title="생산동 2층 로그북 대상 (시작일+2영업일)"; floor2Chk.onchange=()=>{b.floor2=floor2Chk.checked; scheduleSave();}; floor2Td.appendChild(floor2Chk); tr.appendChild(floor2Td);
@@ -1179,7 +1180,7 @@
         tr.style.cursor = 'pointer';
         tr.onclick = ()=>{ selectedResultId = (selectedResultId===b.id)? null : b.id; renderResult(wrap, rows, diffs, removed, prevSnap); };
         ledgerTemplate.forEach(h=>{
-          const v = h.field? fieldValueFor(b,h.field,i) : "";
+          const v = h.field? (fieldValueFor(b,h.field,i) || '-') : "-";
           tr.appendChild(el('td', {style: h.field? '':'background:#f2f4f7; color:var(--sub);'}, [String(v)]));
         });
         tr.appendChild(el('td', {class:'note'}, [d||'-']));
@@ -1221,7 +1222,7 @@
       case 'end': return iso(b.end);
       case 'qcType': return b.qcType;
       case 'pv': return b.pv? 'O':'-';
-      case 'cv': return '-';
+      case 'cv': return b.cv ? 'O' : '-';
       case 'realtime': return b.realtime? 'O':'-';
       case 'bpr': return b.bpr? iso(b.bpr):'확인필요';
       case 'logbook': return iso(b.logbook);
@@ -1239,13 +1240,13 @@
   function toRows(batches){
     if(ledgerTemplate.length){
       const header = ledgerTemplate.map(h=>h.text);
-      const newRows = batches.map((b,i)=> ledgerTemplate.map(h=> h.field? fieldValueFor(b,h.field,i) : ""));
+      const newRows = batches.map((b,i)=> ledgerTemplate.map(h=> h.field? (fieldValueFor(b,h.field,i) || '-') : "-"));
       return [header, ...state.ledgerRows, ...newRows];
     }
     const header = ["No.","품목명","제법+년도","해당월","순번","시작일","완료일","품질시험진행중간체","PV여부확인","CV여부확인","실시간품목","BPR제출예정일","로그북제출예정일","작업조","작업조명","비고"];
     return [header, ...batches.map((b,i)=>[
       i+1, b.codeId, `${b.method}${b.year}`, b.monthCode, b.seq, iso(b.start), iso(b.end),
-      b.qcType, b.pv?'O':'-', '-', b.realtime?'O':'-',
+      b.qcType, b.pv?'O':'-', b.cv?'O':'-', b.realtime?'O':'-',
       b.bpr?iso(b.bpr):'확인필요', iso(b.logbook), b.team, b.rosterName||'', b.note||''
     ])];
   }
