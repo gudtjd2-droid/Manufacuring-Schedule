@@ -350,7 +350,17 @@
       }
       const dayValues = Object.values(colDay);
       if(dayValues.length===0){ warnings.push(`${blockIdx+1}번째 주간 표에서 날짜를 인식하지 못했습니다.`); return; }
-      const blockMinDay = Math.min(...dayValues);
+      const blockMinDay = colDay[dataStartCol];
+
+      const colDateIso = {};
+      { let monthOffset = 0, prevDay = null;
+        for(let c=dataStartCol; c<grid[dateRow].length; c++){
+          if(colDay[c]==null) continue;
+          if(prevDay!=null && colDay[c] < prevDay) monthOffset++;
+          prevDay = colDay[c];
+          colDateIso[c] = iso(new Date(year, month-1+monthOffset, colDay[c]));
+        }
+      }
 
       let mode = 'data';
       for(let r=headerRow+1; r<blockEndRow; r++){
@@ -362,9 +372,9 @@
         if(label.includes(QC_INTER_MARK) || label.includes(QC_API_MARK)){
           const target = label.includes(QC_INTER_MARK) ? qcInter : qcApi;
           for(let c=dataStartCol; c<grid[r].length; c++){
-            const day = colDay[c]; const v = (grid[r][c]||{}).text||"";
-            if(!day || !v.trim()) continue;
-            parseList(v).forEach(name=>{ target[day] = target[day]||[]; if(!target[day].includes(name)) target[day].push(name); });
+            const dISO = colDateIso[c]; const v = (grid[r][c]||{}).text||"";
+            if(!dISO || !v.trim()) continue;
+            parseList(v).forEach(name=>{ target[dISO] = target[dISO]||[]; if(!target[dISO].includes(name)) target[dISO].push(name); });
           }
           continue;
         }
@@ -380,7 +390,7 @@
           const rangeCodes = expandRangeCode(cellInfo.text);
           const codesInCell = rangeCodes || (parseCode(cellInfo.text) ? [parseCode(cellInfo.text)] : []);
           if(codesInCell.length===0) continue;
-          const theDate = new Date(year, month-1, day);
+          const dISO = colDateIso[c];
           codesInCell.forEach(parsed=>{
             const sameLot = cur && cur.codeId===parsed.codeId && cur.monthCode===parsed.monthCode && cur.seq===parsed.seq;
             if(!sameLot){
@@ -388,16 +398,16 @@
               cur = {
                 id: uid('b'), codeId: parsed.codeId, base:parsed.base, suffix:parsed.suffix,
                 method:parsed.method, year:parsed.year, monthCode:parsed.monthCode, seq:parsed.seq,
-                team:parsed.team, start: iso(theDate), end: iso(theDate), startHalf: half, endHalf: half, ipcDates: [],
+                team:parsed.team, start: dISO, end: dISO, startHalf: half, endHalf: half, ipcDates: [],
                 pv: isPvRow, startBold: hadFormatting? !!cellInfo.bold : true, note:"",
                 blockIdx, possibleContinuation: (day===blockMinDay && hadFormatting && !cellInfo.bold),
               };
             } else {
-              cur.end = iso(theDate);
+              cur.end = dISO;
               cur.endHalf = half;
               if(parsed.team) cur.team = parsed.team;
             }
-            if(cellInfo.pink) cur.ipcDates.push(iso(theDate));
+            if(cellInfo.pink) cur.ipcDates.push(dISO);
           });
         }
         if(cur) allBatches.push(cur);
@@ -730,19 +740,18 @@
       if(!grid){ msg1.innerHTML=""; msg1.appendChild(el('div',{class:'errbox'},["표를 인식하지 못했습니다. 엑셀 범위를 다시 복사해서 붙여넣어주세요."])); return; }
       const result = parseScheduleGrid(grid, state.year, state.month, hadFormatting);
       state.batches = dedupeBatches(state.batches.concat(result.batches));
-      function upsertQc(arr, day, items){
-        const dateStr = iso(new Date(state.year,state.month-1,+day));
+      function upsertQc(arr, dateStr, items){
         const itemsStr = items.join(', ');
         const dup = arr.find(r=> r.date===dateStr && r.items===itemsStr);
         if(!dup) arr.push({date: dateStr, items: itemsStr});
       }
-      Object.entries(result.qcInter).forEach(([day,items])=> upsertQc(qcInterRows, day, items));
+      Object.entries(result.qcInter).forEach(([dateStr,items])=> upsertQc(qcInterRows, dateStr, items));
       saveQcRows();
       msg1.innerHTML = "";
       msg1.appendChild(el('div', {class:'warnbox'}, [`✅ 배치 ${result.batches.length}건 인식됨` + (result.warnings.length? " / "+result.warnings.join(" · "):"")]));
       scheduleSave(); render();
     });
-    left.appendChild(el('div',{class:'hint'},["※ 여러 주(예: 1일~31일 전체)를 한번에 복사해 붙여넣으면 주 경계를 넘어가는 배치(예: 목요일 시작~다음주 화요일 완료)도 자동으로 이어붙입니다."]));
+    left.appendChild(el('div',{class:'hint'},["※ 여러 주(예: 1일~31일 전체)를 한번에 복사해 붙여넣으면 주 경계를 넘어가는 배치(예: 목요일 시작~다음주 화요일 완료)도 자동으로 이어붙입니다. 월말에서 다음 달로 넘어가는 것도(예: 31→1) 자동으로 인식합니다."]));
     cols.appendChild(left);
 
     const mid = el('div');
@@ -941,7 +950,7 @@
 
     const table = el('table', {class:'tbl'});
     const thead = el('tr');
-    ["No.","품목명(코드)","제법+년도","월","순번","시작일","완료일","작업조명","PV","CV","실시간","최종공정물","생산동2층","IPC마지막날","삭제"].forEach(h=> thead.appendChild(el('th',null,[h])));
+    ["No.","품목명(코드)","제법+년도","월","순번","시작일","완료일","작업조명","PV","CV","실시간",["QC Test 없는 중간체","최종공정물"],"생산동2층","IPC마지막날","삭제"].forEach(h=> thead.appendChild(el('th',null, Array.isArray(h)? [h[0], el('br'), h[1]] : [h])));
     table.appendChild(el('thead',null,[thead]));
     const tbody = el('tbody');
     [...visibleBatches].sort((a,b)=> a.start.localeCompare(b.start)).forEach((b,idx)=>{
@@ -1028,18 +1037,34 @@
 
   let holidayPickerYear = null, holidayPickerMonth = null;
 
+  let holidaySaveTimer = null;
+  let holidaySaveStatus = "";
   function toggleHoliday(dISO){
     const set = holidaySet();
     if(set.has(dISO)) set.delete(dISO); else set.add(dISO);
     holidayList = Array.from(set).sort().join(', ');
-    saveHolidays();
+    holidaySaveStatus = "저장 중...";
+    clearTimeout(holidaySaveTimer);
+    holidaySaveTimer = setTimeout(async ()=>{ await saveHolidays(); holidaySaveStatus = "저장됨 · "+new Date().toLocaleTimeString('ko-KR'); render(); }, 600);
     render();
   }
 
   function buildRulesCard(){
     if(holidayPickerYear===null){ holidayPickerYear = state.year; holidayPickerMonth = state.month; }
     const card = el('div', {class:'card'});
-    card.appendChild(el('h2', null, ["⚙️ 공휴일 설정"]));
+    const rulesHead = el('div', {class:'row'});
+    rulesHead.appendChild(el('h2', {style:'margin:0;'}, ["⚙️ 공휴일 설정"]));
+    const holSaveBtn = el('button', {class:'ghost'}, ["💾 지금 저장"]);
+    holSaveBtn.onclick = async ()=>{
+      clearTimeout(holidaySaveTimer);
+      holSaveBtn.disabled = true; holSaveBtn.textContent = "저장 중...";
+      await saveHolidays();
+      holidaySaveStatus = "저장됨 · "+new Date().toLocaleTimeString('ko-KR');
+      render();
+    };
+    rulesHead.appendChild(holSaveBtn);
+    rulesHead.appendChild(el('span', {class:'status'}, [holidaySaveStatus]));
+    card.appendChild(rulesHead);
 
     const nav = el('div', {class:'row'});
     const prevBtn = el('button', {class:'ghost'}, ["◀"]);
@@ -1079,7 +1104,7 @@
     card.appendChild(list);
 
     card.appendChild(el('div', {class:'hint', style:'margin-top:8px;'},[
-      "※ 모든 영업일 계산은 토·일·공휴일을 전부 제외하고 셉니다. · 로그북: 완료일 그대로(휴일이면 다음 영업일), PV·실시간 품목은 +1영업일 추가, IPC가 완료일과 겹치면 +1영업일 추가(스택 안 함, 최대 +1). · BPR: QC있는 중간체는 QC 중간체 시험의뢰일+1영업일이 기준이며 IPC는 영향을 주지 않습니다 (PV·실시간과 겹치면 주말보정과 비교해 더 늦은 날짜 채택) / PV·실시간 단독인 경우 완료일+1영업일(휴일이면 +2영업일), IPC 겹쳐도 최대 +2영업일까지만 / QC Test 없는 중간체·원료의약품은 완료일 그대로(휴일이면 다음 영업일, IPC 겹치면 +1영업일). · EDM 제외, 제조기간 내 근무일이 1일뿐이면 BPR·로그북 모두 시작일+2영업일 최소 보장. · PV·실시간·QC Test 없는 중간체는 위 배치 목록 표에서 배치별로 체크합니다."
+      "※ 모든 영업일 계산은 토·일·공휴일을 전부 제외하고 셉니다. · 로그북: 완료일 그대로(휴일이면 다음 영업일), PV·실시간 품목은 +1영업일 추가, IPC가 완료일과 겹치면 +1영업일 추가(스택 안 함, 최대 +1). · BPR: QC있는 중간체는 QC 중간체 시험의뢰일+1영업일이 기준이며 IPC는 영향을 주지 않습니다(PV·실시간과 겹치면 주말보정과 비교해 더 늦은 날짜 채택) / PV·실시간 단독인 경우 완료일+1영업일(휴일이면 +2영업일), IPC 겹쳐도 최대 +2영업일까지만 / QC Test 없는 중간체·원료의약품은 완료일 그대로(휴일이면 다음 영업일, IPC 겹치면 +1영업일). · EDM 제외, 제조기간 내 근무일이 1일뿐이면 BPR·로그북 모두 시작일+2영업일 최소 보장. · PV·실시간·QC Test 없는 중간체는 위 배치 목록 표에서 배치별로 체크합니다."
     ]));
     return card;
   }
