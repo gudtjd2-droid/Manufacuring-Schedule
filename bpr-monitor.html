@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BPR·BCR 작성상황 모니터링</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root{
+    --ink:#1b2430;
+    --paper:#f5f6f4;
+    --card:#ffffff;
+    --line:#dde1de;
+    --muted:#6b7580;
+    --bpr:#2f6f76;      /* teal - BPR */
+    --bcr:#c1682f;      /* burnt orange - BCR */
+    --combo:#3d4b63;    /* slate - 합산 */
+    --bad:#b3432b;
+    --ok:#3c7a5a;
+    --accent:#1b2430;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:"Pretendard","Noto Sans KR",-apple-system,BlinkMacSystemFont,"Malgun Gothic",sans-serif;
+    font-size:14px; line-height:1.5;
+  }
+  header{
+    background:var(--ink); color:#f5f6f4; padding:22px 28px;
+    display:flex; align-items:baseline; gap:14px; flex-wrap:wrap;
+  }
+  header h1{font-size:18px; margin:0; font-weight:700; letter-spacing:.2px;}
+  header .sub{color:#aab3bf; font-size:12.5px;}
+  .wrap{max-width:1180px; margin:0 auto; padding:22px 20px 60px;}
+
+  .upload-box{
+    background:var(--card); border:1px solid var(--line); border-radius:10px;
+    padding:26px; text-align:center; margin-bottom:22px;
+  }
+  .upload-box.compact{padding:14px 20px; text-align:left; display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap;}
+  .upload-box p{margin:0 0 12px; color:var(--muted);}
+  input[type=file]{display:none;}
+  .btn{
+    display:inline-block; background:var(--ink); color:#fff; border:none;
+    padding:10px 18px; border-radius:7px; font-size:13.5px; font-weight:600;
+    cursor:pointer;
+  }
+  .btn:hover{opacity:.88;}
+  .filename{font-size:12.5px; color:var(--muted);}
+
+  .tabs{display:flex; gap:4px; margin-bottom:16px; border-bottom:1px solid var(--line); flex-wrap:wrap;}
+  .tab{
+    padding:10px 16px; cursor:pointer; font-size:13.5px; font-weight:600;
+    color:var(--muted); border-bottom:2px solid transparent; user-select:none;
+  }
+  .tab.active{color:var(--ink); border-bottom-color:var(--bcr);}
+  .panel{display:none;}
+  .panel.active{display:block;}
+
+  .card{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:18px; margin-bottom:18px;}
+  .card h2{font-size:14.5px; margin:0 0 4px;}
+  .card .desc{font-size:12px; color:var(--muted); margin-bottom:14px;}
+
+  table{border-collapse:collapse; width:100%; font-size:12px;}
+  th,td{border:1px solid var(--line); padding:6px 7px; text-align:center; white-space:nowrap;}
+  th{background:#eef0ee; font-weight:700; font-size:11.5px;}
+  td.month-cell{font-weight:700; background:#fafbf9;}
+  .metric-group-bpr{background:rgba(47,111,118,.07);}
+  .metric-group-bcr{background:rgba(193,104,47,.07);}
+  .over-target{color:var(--bad); font-weight:700;}
+  .table-scroll{overflow-x:auto;}
+
+  .toggle-row{display:flex; gap:8px; margin-bottom:14px;}
+  .toggle-btn{
+    padding:6px 14px; border:1px solid var(--line); border-radius:20px; background:#fff;
+    cursor:pointer; font-size:12.5px; font-weight:600; color:var(--muted);
+  }
+  .toggle-btn.active{background:var(--ink); color:#fff; border-color:var(--ink);}
+
+  .chart-box{position:relative; height:360px;}
+  .legend-note{font-size:11.5px; color:var(--muted); margin-top:10px;}
+
+  .empty{padding:60px 20px; text-align:center; color:var(--muted);}
+  .assumptions{font-size:11.5px; color:var(--muted); background:#eef0ee; border-radius:8px; padding:12px 14px; margin-top:8px;}
+  .assumptions b{color:var(--ink);}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>BPR · BCR 작성상황 모니터링</h1>
+  <span class="sub">원본 데이터(26년_BPR 현황 / 26년_BCR 현황)를 월별로 재집계합니다</span>
+</header>
+
+<div class="wrap">
+
+  <div id="uploadBox" class="card">
+    <div class="tabs" style="margin-bottom:16px;">
+      <div class="tab active" data-inmode="paste">엑셀 붙여넣기</div>
+      <div class="tab" data-inmode="file">파일 업로드</div>
+    </div>
+
+    <div id="pasteMode">
+      <div class="desc" style="margin-bottom:14px;">
+        원본 엑셀에서 <b>'26년_BPR 현황'</b> 시트를 열어 헤더 행부터 데이터 끝까지 전체 선택(Ctrl+A 후 표 범위만) → 복사(Ctrl+C) 한 뒤 아래 첫 번째 칸에 붙여넣으세요(Ctrl+V). <b>'26년_BCR 현황'</b> 시트도 같은 방식으로 두 번째 칸에 붙여넣으세요.
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+        <div>
+          <label style="font-size:12.5px; font-weight:700; display:block; margin-bottom:6px;">① BPR 현황 데이터 (헤더 포함)</label>
+          <textarea id="pasteBPR" placeholder="여기에 엑셀에서 복사한 BPR 현황 표를 붙여넣으세요" style="width:100%; height:160px; font-size:11.5px; padding:8px; border:1px solid var(--line); border-radius:6px; font-family:monospace;"></textarea>
+        </div>
+        <div>
+          <label style="font-size:12.5px; font-weight:700; display:block; margin-bottom:6px;">② BCR 현황 데이터 (헤더 포함)</label>
+          <textarea id="pasteBCR" placeholder="여기에 엑셀에서 복사한 BCR 현황 표를 붙여넣으세요" style="width:100%; height:160px; font-size:11.5px; padding:8px; border:1px solid var(--line); border-radius:6px; font-family:monospace;"></textarea>
+        </div>
+      </div>
+      <div style="margin-top:14px;">
+        <label style="font-size:12.5px; font-weight:700; display:block; margin-bottom:6px;">③ (선택) BPR·BCR 수정 이력 데이터 — '26년_BPR, BCR 수정' 시트, 작업자별 월별 오류 건수 집계용</label>
+        <textarea id="pasteRev" placeholder="작업자별 월별 오류 건수를 보려면 '26년_BPR, BCR 수정' 시트를 헤더 행부터 복사해 붙여넣으세요 (생략 가능)" style="width:100%; height:120px; font-size:11.5px; padding:8px; border:1px solid var(--line); border-radius:6px; font-family:monospace;"></textarea>
+      </div>
+      <div style="margin-top:14px;">
+        <label style="font-size:12.5px; font-weight:700; display:block; margin-bottom:6px;">④ (선택) 인원별 통계 데이터 — '26년_통계_제조팀' 시트, 연차·항목별 오류 정리용</label>
+        <textarea id="pasteTeam" placeholder="연차별·항목별 작업자 통계를 보려면 '26년_통계_제조팀' 시트를 헤더 행부터 복사해 붙여넣으세요 (생략 가능)" style="width:100%; height:120px; font-size:11.5px; padding:8px; border:1px solid var(--line); border-radius:6px; font-family:monospace;"></textarea>
+      </div>
+      <button class="btn" id="applyPasteBtn" style="margin-top:14px;">붙여넣은 데이터로 계산하기</button>
+      <div id="pasteStatus" class="filename" style="margin-top:8px;"></div>
+    </div>
+
+    <div id="fileMode" style="display:none;">
+      <p>모니터링용 엑셀(.xlsx / .xlsm)을 업로드하세요.<br>'26년_BPR 현황', '26년_BCR 현황' 시트를 자동으로 읽어 월별 통계를 계산합니다.</p>
+      <label class="btn" for="fileInput">엑셀 파일 선택</label>
+      <input type="file" id="fileInput" accept=".xlsx,.xlsm">
+      <div id="status" class="filename" style="margin-top:10px;"></div>
+    </div>
+  </div>
+
+  <div id="content" style="display:none;">
+
+    <div class="tabs">
+      <div class="tab active" data-tab="t1">1. PV 제외 · 월별 전체 품목</div>
+      <div class="tab" data-tab="t2">2. PV 포함 · 월별 전체 품목</div>
+      <div class="tab" data-tab="t3">3. 항목별 소요일 추이</div>
+      <div class="tab" data-tab="t4">4. 목표초과 건수 추이</div>
+      <div class="tab" data-tab="t5">5. 작업자별 월별 오류 건수</div>
+      <div class="tab" data-tab="t7">7. 인원별 통계(연차·항목별)</div>
+      <div class="tab" data-tab="t6">6. 수식 오류 검사</div>
+    </div>
+
+    <div class="panel active" id="t1"><div class="card">
+      <h2>PV 제외 · BPR 진행 평균 소요일 (월별)</h2>
+      <div class="desc">'평가 제외(외부요인)' 표시된 건은 평균 계산에서 제외했습니다.</div>
+      <div class="table-scroll" id="table1"></div>
+    </div></div>
+
+    <div class="panel" id="t2"><div class="card">
+      <h2>PV 포함 · BPR 진행 평균 소요일 (월별)</h2>
+      <div class="desc">'제외 안 된 배치' + 'PV라는 사유로 제외됐던 배치'를 하나의 집합으로 묶어 건수 가중평균을 계산합니다 (기존 오류였던 '기본평균+PV평균 단순합산' 방식 아님 — 이미 포함된 PV 배치가 중복 반영되지 않도록 수정했습니다).
+      <div class="table-scroll" id="table2"></div>
+    </div></div>
+
+    <div class="panel" id="t3"><div class="card">
+      <h2>항목별 월별 소요일 추이</h2>
+      <div class="toggle-row" id="pvToggle3">
+        <div class="toggle-btn active" data-pv="0">PV 제외</div>
+        <div class="toggle-btn" data-pv="1">PV 포함</div>
+      </div>
+      <div class="chart-box"><canvas id="chart3"></canvas></div>
+      <div class="legend-note">작업자제출지연일 / 총 검토소요일 / 수정소요일 / 제출~접수소요일(문서결재준비완료일) — BPR·BCR 합산평균 기준</div>
+    </div></div>
+
+    <div class="panel" id="t4"><div class="card">
+      <h2>목표소요일 초과 건수 · 초과율 추이</h2>
+      <div class="toggle-row" id="pvToggle4">
+        <div class="toggle-btn active" data-pv="0">PV 제외</div>
+        <div class="toggle-btn" data-pv="1">PV 포함</div>
+      </div>
+      <div class="chart-box"><canvas id="chart4"></canvas></div>
+      <div class="legend-note">막대 = 목표소요일 초과 건수 합계(BPR+BCR) · 선 = 발행 건수 대비 초과율(%)</div>
+    </div></div>
+
+    <div class="panel" id="t5"><div class="card">
+      <h2>작업자별 월별 오류(수정) 건수</h2>
+      <div class="desc" id="t5desc">'BPR·BCR 수정 이력' 데이터가 붙여넣어지지 않았습니다. 위 ③ 칸에 '26년_BPR, BCR 수정' 시트를 붙여넣고 다시 계산해주세요.</div>
+      <div id="t5body"></div>
+    </div></div>
+
+    <div class="panel" id="t7"><div class="card">
+      <h2>인원별 통계 (연차 · 항목별)</h2>
+      <div class="desc" id="t7desc">'인원별 통계' 데이터가 붙여넣어지지 않았습니다. 위 ④ 칸에 '26년_통계_제조팀' 시트를 붙여넣고 다시 계산해주세요.</div>
+      <div id="t7body"></div>
+    </div></div>
+
+    <div class="panel" id="t6"><div class="card">
+      <h2>엑셀 수식 오류 검사</h2>
+      <div class="desc">복사/붙여넣기는 값만 옮겨지고 수식이 사라지므로, 이 검사는 상단 '파일 업로드' 탭에서 원본 엑셀 파일을 올려야 실행됩니다. 워크북 전체 시트를 스캔해 #REF!, #DIV/0! 등 오류가 있는 셀을 모읍니다.</div>
+      <div id="t6body"></div>
+    </div></div>
+
+    <div class="assumptions">
+      <b>계산 방식 안내</b> — ① 월 구분은 원본 '월' 컬럼(A~L → 1~12월)을 사용합니다. ② 평균은 원본에 이미 계산되어 있는 근무일 기준 소요일 컬럼(공휴일 제외)을 그대로 사용해 집계했습니다. ③ 2차 검토소요일 관련 컬럼은 원본 파일 수식에 #REF! 오류가 있어 집계에서 제외했습니다. ④ 초과건수 합계는 BPR+BCR 건수의 합입니다.
+    </div>
+  </div>
+
+  <div id="emptyMsg" class="empty" style="display:none;">시트 구조를 다시 확인해주세요 ('26년_BPR 현황' / '26년_BCR 현황' 시트를 찾지 못했습니다).</div>
+
+</div>
+
+<script>
+const norm = s => (s===undefined||s===null) ? '' : String(s).replace(/\s+/g,'').trim();
+const LETTER_TO_MONTH = {A:1,B:2,C:3,D:4,E:5,F:6,G:7,H:8,I:9,J:10,K:11,L:12};
+
+const BPR_COLS = {
+  month: '월',
+  pv: 'PV여부확인',
+  excl: '평가제외(외부요인)',
+  reason: '평가제외사유',
+  workerDelay: '작업자제출지연일(공휴일제외)',
+  review1st: '검토소요일(근무일기준)',
+  reviewTotal: '총검토소요일(공휴일제외)',
+  revise: '수정소요일(공휴일제외)',
+  docPrepDelay: '제출~접수소요일(문서결재준비완료일)',
+  receiptDelay: '접수지연일(QA접수일기준)',
+  midReview: '중간체_총검토소요일(공휴일제외)',
+  apiReview: '원료의약품_총검토소요일(공휴일제외)',
+  midReceipt: '중간체_접수지연일',
+  apiReceipt: '원료의약품_접수지연일',
+  overTarget: '목표일초과건',
+};
+const BCR_COLS = {
+  month: '월',
+  pv: 'PV여부확인',
+  excl: '평가제외(외부요인)',
+  reason: '평가제외사유',
+  workerDelay: '작업자제출지연일(공휴일제외)',
+  review1st: '1차검토소요일(근무일기준)',
+  reviewTotal: '총검토소요일(공휴일제외)',
+  revise: '수정소요일(공휴일제외)',
+  docPrepDelay: '제출~접수소요일(문서결재준비완료일)',
+  receiptDelay: '접수지연일(QA접수일기준)',
+  midReview: '중간체_총검토소요일(공휴일제외)',
+  apiReview: '원료의약품_총검토소요일(공휴일제외)',
+  midReceipt: '중간체_접수지연일',
+  apiReceipt: '원료의약품_접수지연일',
+  overTarget: '목표일초과건',
+};
+
+const METRIC_LABELS = {
+  workerDelay: '작업자제출 지연일',
+  review1st: '1차 검토 소요일',
+  reviewTotal: '총 검토소요일(공휴일제외)',
+  revise: '수정 소요일(공휴일제외)',
+  docPrepDelay: '접수지연일(문서결재준비일)',
+  receiptDelay: '접수지연일(QA접수일기준)',
+  midReview: '중간체 검토소요일',
+  apiReview: '원료의약품 검토소요일',
+  midReceipt: '중간체 접수소요일',
+  apiReceipt: '원료의약품 접수소요일',
+};
+const METRIC_KEYS = Object.keys(METRIC_LABELS);
+
+function buildHeaderMap(rows, headerRowIdx){
+  const map = {};
+  const headerRow = rows[headerRowIdx] || [];
+  headerRow.forEach((h,i)=>{ if(h!==undefined && h!=='') map[norm(h)] = i; });
+  return map;
+}
+
+function extractRows(rows, headerRowIdx, colsDef){
+  const map = buildHeaderMap(rows, headerRowIdx);
+  const idx = {};
+  Object.keys(colsDef).forEach(k=>{ idx[k] = map[norm(colsDef[k])]; });
+  const out = [];
+  for(let r=headerRowIdx+1; r<rows.length; r++){
+    const row = rows[r];
+    if(!row || row.length===0) continue;
+    const monthLetter = row[idx.month];
+    if(!monthLetter || !LETTER_TO_MONTH[String(monthLetter).trim()]) continue;
+    const rec = { month: LETTER_TO_MONTH[String(monthLetter).trim()] };
+    rec.pv = norm(row[idx.pv]) === 'O';
+    rec.excluded = row[idx.excl] !== undefined && row[idx.excl] !== null && String(row[idx.excl]).trim() !== '';
+    rec.reason = (idx.reason!==undefined && row[idx.reason]!==undefined && row[idx.reason]!==null) ? String(row[idx.reason]).trim() : '';
+    METRIC_KEYS.forEach(k=>{
+      const v = idx[k]!==undefined ? row[idx[k]] : undefined;
+      rec[k] = (typeof v === 'number') ? v : null;
+    });
+    const ot = idx.overTarget!==undefined ? row[idx.overTarget] : undefined;
+    rec.overTarget = (ot === 1 || ot === '1') ? 1 : 0;
+    out.push(rec);
+  }
+  return out;
+}
+
+function avg(arr){
+  const v = arr.filter(x=>typeof x==='number' && !isNaN(x));
+  if(v.length===0) return null;
+  return v.reduce((a,b)=>a+b,0)/v.length;
+}
+
+function aggregateMonth(bprRows, bcrRows, month, includePV){
+  const bprAll = bprRows.filter(r=>r.month===month);
+  const bcrAll = bcrRows.filter(r=>r.month===month);
+
+  // PV 포함 로직: "제외 안 된 배치" + "PV라는 사유로 제외됐던 배치"를 하나의 집합으로 묶어
+  // 건수 가중평균을 낸다 (예전처럼 두 평균을 단순히 더하면 이미 포함된 배치가 중복 반영됨).
+  function selectSet(rows){
+    if(!includePV) return rows.filter(r=>!r.excluded);
+    return rows.filter(r=>!r.excluded || (r.excluded && r.reason === 'PV'));
+  }
+  const bprSet = selectSet(bprAll);
+  const bcrSet = selectSet(bcrAll);
+
+  const metrics = {};
+  METRIC_KEYS.forEach(k=>{
+    const bprAvg = avg(bprSet.map(r=>r[k]));
+    const bcrAvg = avg(bcrSet.map(r=>r[k]));
+    const combined = (bprAvg!==null && bcrAvg!==null) ? (bprAvg+bcrAvg)/2 : (bprAvg ?? bcrAvg);
+    metrics[k] = { bpr: bprAvg, bcr: bcrAvg, combined };
+  });
+
+  const bprOver = bprSet.filter(r=>r.overTarget===1).length;
+  const bcrOver = bcrSet.filter(r=>r.overTarget===1).length;
+  const issued = bprAll.length;
+  const overAvg = (bprOver + bcrOver) / 2; // 엑셀 AP(합산평균)와 동일: BPR·BCR 초과건수의 평균
+  const overRate = issued>0 ? (overAvg/issued*100) : 0;
+
+  return { month, issued, metrics, bprOver, bcrOver, overAvg, overRate };
+}
+
+let STATE = { bprRows: [], bcrRows: [], monthsPresent: [] };
+
+function findSheetHeaderRow(sheetRows){
+  for(let i=0;i<Math.min(sheetRows.length,10);i++){
+    const row = sheetRows[i] || [];
+    if(row.some(c=>norm(c)==='월')) return i;
+  }
+  return 3;
+}
+
+function processSheets(bprRaw, bcrRaw){
+  const bprHeaderIdx = findSheetHeaderRow(bprRaw);
+  const bcrHeaderIdx = findSheetHeaderRow(bcrRaw);
+
+  STATE.bprRows = extractRows(bprRaw, bprHeaderIdx, BPR_COLS);
+  STATE.bcrRows = extractRows(bcrRaw, bcrHeaderIdx, BCR_COLS);
+
+  const monthsSet = new Set(STATE.bprRows.map(r=>r.month));
+  STATE.monthsPresent = Array.from(monthsSet).sort((a,b)=>a-b);
+
+  if(STATE.bprRows.length===0 || STATE.bcrRows.length===0){
+    document.getElementById('emptyMsg').style.display='block';
+    document.getElementById('content').style.display='none';
+    return false;
+  }
+
+  document.getElementById('emptyMsg').style.display='none';
+  document.getElementById('content').style.display='block';
+
+  renderTable('table1', false);
+  renderTable('table2', true);
+  renderChart3(false);
+  renderChart4(false);
+  return true;
+}
+
+function handleWorkbook(wb){
+  const bprSheetName = wb.SheetNames.find(n=>n.includes('BPR') && n.includes('현황'));
+  const bcrSheetName = wb.SheetNames.find(n=>n.includes('BCR') && n.includes('현황'));
+  if(!bprSheetName || !bcrSheetName){
+    document.getElementById('emptyMsg').style.display='block';
+    document.getElementById('content').style.display='none';
+    return;
+  }
+  const bprRaw = XLSX.utils.sheet_to_json(wb.Sheets[bprSheetName], {header:1, raw:true, defval:undefined});
+  const bcrRaw = XLSX.utils.sheet_to_json(wb.Sheets[bcrSheetName], {header:1, raw:true, defval:undefined});
+  processSheets(bprRaw, bcrRaw);
+
+  const revSheetName = wb.SheetNames.find(n=>n.includes('BPR') && n.includes('BCR') && n.includes('수정'));
+  if(revSheetName){
+    const revRaw = XLSX.utils.sheet_to_json(wb.Sheets[revSheetName], {header:1, raw:true, defval:undefined});
+    const revHeaderIdx = findRevisionHeaderRow(revRaw);
+    const revRows = extractRevisionRows(revRaw, revHeaderIdx);
+    if(revRows.length){ renderWorkerErrorTable(revRows); }
+  }
+
+  const errorGroups = scanFormulaErrors(wb);
+  renderFormulaErrors(errorGroups);
+}
+
+const REV_COLS = {
+  month: '월',
+  worker: '작성자(1)',
+  bprNote: '수정사항및처리',
+  bcrNote: '수정사항및처리2',
+};
+
+function isRealNote(v){
+  if(v===undefined || v===null) return false;
+  let t = String(v).trim();
+  t = t.replace(/^<[^>]*>\s*/, '').trim(); // strip leading <BATCHNO> tag
+  if(t==='' || t==='ㅡ' || t==='-' || t==='.') return false;
+  return true;
+}
+
+function extractRevisionRows(rows, headerRowIdx){
+  const map = buildHeaderMap(rows, headerRowIdx);
+  const idx = {};
+  Object.keys(REV_COLS).forEach(k=>{ idx[k] = map[norm(REV_COLS[k])]; });
+  const out = [];
+  for(let r=headerRowIdx+1; r<rows.length; r++){
+    const row = rows[r];
+    if(!row || row.length===0) continue;
+    const monthLetter = row[idx.month];
+    if(!monthLetter || !LETTER_TO_MONTH[String(monthLetter).trim()]) continue;
+    const worker = idx.worker!==undefined ? row[idx.worker] : undefined;
+    if(!worker || String(worker).trim()==='' || String(worker).trim()==='-') continue;
+    const bprHas = isRealNote(idx.bprNote!==undefined ? row[idx.bprNote] : undefined);
+    const bcrHas = isRealNote(idx.bcrNote!==undefined ? row[idx.bcrNote] : undefined);
+    out.push({ month: LETTER_TO_MONTH[String(monthLetter).trim()], worker: String(worker).trim(), bprHas, bcrHas });
+  }
+  return out;
+}
+
+function findRevisionHeaderRow(rows){
+  for(let i=0;i<Math.min(rows.length,10);i++){
+    const row = rows[i] || [];
+    if(row.some(c=>norm(c)==='작성자(1)')) return i;
+  }
+  return 0;
+}
+
+function computeWorkerMonthlyErrors(revRows){
+  const workers = Array.from(new Set(revRows.map(r=>r.worker))).sort();
+  const months = Array.from(new Set(revRows.map(r=>r.month))).sort((a,b)=>a-b);
+  const table = {}; // worker -> month -> count
+  workers.forEach(w=>{ table[w] = {}; months.forEach(m=>table[w][m]=0); });
+  revRows.forEach(r=>{
+    const n = (r.bprHas?1:0) + (r.bcrHas?1:0);
+    if(n>0) table[r.worker][r.month] += n;
+  });
+  const totals = workers.map(w=>({ worker: w, total: months.reduce((s,m)=>s+table[w][m],0) }))
+    .sort((a,b)=>b.total-a.total);
+  return { workers: totals.map(t=>t.worker), months, table, totals };
+}
+
+function renderWorkerErrorTable(revRows){
+  const { workers, months, table, totals } = computeWorkerMonthlyErrors(revRows);
+  document.getElementById('t5desc').textContent = `총 ${revRows.length}건의 수정 이력 기록을 인식했습니다. (작성자 정보 없는 행은 제외)`;
+
+  let html = '<div class="chart-box" style="height:280px; margin-bottom:20px;"><canvas id="chartWorker"></canvas></div>';
+  html += '<div class="table-scroll"><table><thead><tr><th>작업자</th>';
+  months.forEach(m=> html += `<th>${m}월</th>`);
+  html += '<th>합계</th></tr></thead><tbody>';
+  workers.forEach(w=>{
+    const total = totals.find(t=>t.worker===w).total;
+    html += `<tr><td class="month-cell">${w}</td>`;
+    months.forEach(m=>{
+      const v = table[w][m];
+      html += `<td class="${v>0?'over-target':''}">${v||'-'}</td>`;
+    });
+    html += `<td><b>${total}</b></td></tr>`;
+  });
+  html += '</tbody></table></div>';
+  document.getElementById('t5body').innerHTML = html;
+
+  const ctx = document.getElementById('chartWorker').getContext('2d');
+  if(chartWorker) chartWorker.destroy();
+  chartWorker = new Chart(ctx, {
+    type:'bar',
+    data:{ labels: workers, datasets:[{ label:'총 오류 건수', data: workers.map(w=>totals.find(t=>t.worker===w).total), backgroundColor:'#c1682f88' }] },
+    options:{ responsive:true, maintainAspectRatio:false, indexAxis:'y',
+      scales:{ x:{ title:{display:true, text:'건수'}, beginAtZero:true } },
+      plugins:{ legend:{display:false} } }
+  });
+}
+let chartWorker = null;
+
+// ---- 26년_통계_제조팀 (인원별 통계: 연차, 오류유형별) ----
+const TEAM_COLS = {
+  team: ['소속',0], tenure: ['입사년차',0], name: ['성명',0],
+  totalCount: ['BPR+BCR건수',0],
+  logbook: ['로그북',0], simple: ['단순오류',0], unclear: ['불명확업무절차',0],
+  noncompliance: ['절차미준수',0], physical: ['물리적오류',0], etc: ['기타오류',0],
+  totalErr: ['총오류수',0],
+  submitDelay: ['제출평균지연일',0], reviseDelay: ['수정평균소요일',0],
+};
+function buildHeaderMapMulti(headerRow){
+  const map = {};
+  headerRow.forEach((h,i)=>{
+    const key = norm(h);
+    if(!key) return;
+    if(!map[key]) map[key] = [];
+    map[key].push(i);
+  });
+  return map;
+}
+function findTeamHeaderRow(rows){
+  for(let i=0;i<Math.min(rows.length,10);i++){
+    const row = rows[i] || [];
+    if(row.some(c=>norm(c)==='성명')) return i;
+  }
+  return 0;
+}
+function extractTeamRows(rows, headerRowIdx){
+  const map = buildHeaderMapMulti(rows[headerRowIdx] || []);
+  const idx = {};
+  Object.keys(TEAM_COLS).forEach(k=>{
+    const [label, occ] = TEAM_COLS[k];
+    const list = map[norm(label)];
+    idx[k] = (list && list[occ]!==undefined) ? list[occ] : undefined;
+  });
+  const out = [];
+  for(let r=headerRowIdx+1; r<rows.length; r++){
+    const row = rows[r];
+    if(!row || row.length===0) continue;
+    const name = idx.name!==undefined ? row[idx.name] : undefined;
+    if(!name || String(name).trim()==='') continue;
+    const num = (i)=>{ const v = idx[i]!==undefined ? row[idx[i]] : undefined; return typeof v==='number' ? v : 0; };
+    out.push({
+      team: idx.team!==undefined ? String(row[idx.team]||'').trim() : '',
+      tenure: (typeof row[idx.tenure]==='number') ? row[idx.tenure] : null,
+      name: String(name).trim(),
+      totalCount: num('totalCount'),
+      logbook: num('logbook'), simple: num('simple'), unclear: num('unclear'),
+      noncompliance: num('noncompliance'), physical: num('physical'), etc: num('etc'),
+      totalErr: num('totalErr'),
+      submitDelay: num('submitDelay'), reviseDelay: num('reviseDelay'),
+    });
+  }
+  return out;
+}
+function tenureBucket(t){
+  if(t===null) return '미상';
+  if(t<=1) return '1년차 이하';
+  if(t<=3) return '2~3년차';
+  if(t<=6) return '4~6년차';
+  if(t<=10) return '7~10년차';
+  return '11년차 이상';
+}
+let chartTenure = null, chartTeam = null;
+function renderTeamStats(rows){
+  document.getElementById('t7desc').textContent = `총 ${rows.length}명의 인원별 통계를 인식했습니다.`;
+
+  let html = '<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;">';
+  html += '<div class="chart-box" style="height:280px;"><canvas id="chartTenure"></canvas></div>';
+  html += '<div class="chart-box" style="height:280px;"><canvas id="chartTeam"></canvas></div>';
+  html += '</div>';
+
+  const sorted = [...rows].sort((a,b)=>b.totalErr-a.totalErr);
+  html += '<div class="table-scroll"><table><thead><tr><th>소속</th><th>연차</th><th>성명</th><th>BPR+BCR건수</th>'
+    + '<th>로그북</th><th>단순오류</th><th>불명확업무절차</th><th>절차미준수</th><th>물리적오류</th><th>기타오류</th><th>총오류수</th>'
+    + '<th>제출평균지연일</th><th>수정평균소요일</th></tr></thead><tbody>';
+  sorted.forEach(r=>{
+    html += `<tr><td>${r.team}</td><td class="month-cell">${r.tenure??'-'}</td><td>${r.name}</td><td>${r.totalCount}</td>`
+      + `<td>${r.logbook}</td><td>${r.simple}</td><td>${r.unclear}</td><td>${r.noncompliance}</td><td>${r.physical}</td><td>${r.etc}</td>`
+      + `<td class="${r.totalErr>0?'over-target':''}"><b>${r.totalErr}</b></td>`
+      + `<td>${fmt(r.submitDelay)}</td><td>${fmt(r.reviseDelay)}</td></tr>`;
+  });
+  html += '</tbody></table></div>';
+  document.getElementById('t7body').innerHTML = html;
+
+  // 연차별 총오류수 합계
+  const bucketOrder = ['1년차 이하','2~3년차','4~6년차','7~10년차','11년차 이상','미상'];
+  const bucketSums = {};
+  bucketOrder.forEach(b=>bucketSums[b]=0);
+  rows.forEach(r=>{ bucketSums[tenureBucket(r.tenure)] += r.totalErr; });
+  const bucketsUsed = bucketOrder.filter(b=>bucketSums[b]>0 || rows.some(r=>tenureBucket(r.tenure)===b));
+
+  const ctxT = document.getElementById('chartTenure').getContext('2d');
+  if(chartTenure) chartTenure.destroy();
+  chartTenure = new Chart(ctxT, {
+    type:'bar',
+    data:{ labels: bucketsUsed, datasets:[{ label:'연차별 총오류수', data: bucketsUsed.map(b=>bucketSums[b]), backgroundColor:'#2f6f7688' }] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, title:{display:true,text:'입사연차별 총오류수 합계'} },
+      scales:{ y:{ beginAtZero:true, title:{display:true,text:'건수'} } } }
+  });
+
+  // 소속(팀)별 총오류수 합계
+  const teams = Array.from(new Set(rows.map(r=>r.team))).filter(Boolean);
+  const teamSums = teams.map(t=>rows.filter(r=>r.team===t).reduce((s,r)=>s+r.totalErr,0));
+
+  const ctxTm = document.getElementById('chartTeam').getContext('2d');
+  if(chartTeam) chartTeam.destroy();
+  chartTeam = new Chart(ctxTm, {
+    type:'bar',
+    data:{ labels: teams, datasets:[{ label:'소속별 총오류수', data: teamSums, backgroundColor:'#c1682f88' }] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, title:{display:true,text:'소속(팀)별 총오류수 합계'} },
+      scales:{ y:{ beginAtZero:true, title:{display:true,text:'건수'} } } }
+  });
+}
+
+// ---- formula error scan (file mode only) ----
+function scanFormulaErrors(wb){
+  const groups = {}; // key: sheet|error -> {sheet,error,count,examples:[],formula}
+  wb.SheetNames.forEach(sheetName=>{
+    const ws = wb.Sheets[sheetName];
+    Object.keys(ws).forEach(addr=>{
+      if(addr[0]==='!') return;
+      const cell = ws[addr];
+      if(cell && cell.t === 'e'){
+        const errType = cell.w || String(cell.v);
+        const key = sheetName + '|' + errType;
+        if(!groups[key]) groups[key] = { sheet: sheetName, error: errType, count:0, examples: [], formula: cell.f || '' };
+        groups[key].count++;
+        if(groups[key].examples.length < 5) groups[key].examples.push(addr);
+      }
+    });
+  });
+  return Object.values(groups).sort((a,b)=> b.count - a.count);
+}
+
+function renderFormulaErrors(groups){
+  const body = document.getElementById('t6body');
+  if(groups.length===0){
+    body.innerHTML = '<div class="desc" style="color:var(--ok); font-weight:700;">발견된 수식 오류가 없습니다.</div>';
+    return;
+  }
+  const totalCount = groups.reduce((s,g)=>s+g.count,0);
+  let html = `<div class="desc" style="margin-bottom:12px;">총 <b style="color:var(--bad);">${totalCount}건</b>의 오류 셀이 ${groups.length}개 그룹으로 발견되었습니다.</div>`;
+  html += '<div class="table-scroll"><table><thead><tr><th>시트</th><th>오류 유형</th><th>건수</th><th>예시 셀</th><th>수식(예시)</th></tr></thead><tbody>';
+  groups.forEach(g=>{
+    html += `<tr><td>${g.sheet}</td><td class="over-target">${g.error}</td><td>${g.count}</td><td style="white-space:normal; text-align:left;">${g.examples.join(', ')}</td><td style="white-space:normal; text-align:left; max-width:340px; font-family:monospace; font-size:10.5px;">${(g.formula||'').replace(/</g,'&lt;')}</td></tr>`;
+  });
+  html += '</tbody></table></div>';
+  body.innerHTML = html;
+}
+function coerceCell(raw){
+  if(raw===undefined || raw===null) return undefined;
+  const t = String(raw).trim();
+  if(t==='') return undefined;
+  if(/^-?\d+(\.\d+)?$/.test(t)) return parseFloat(t);
+  return t;
+}
+
+// Excel clipboard uses tab-separated fields, and wraps any field containing
+// a tab/newline/quote in double quotes (doubling internal quotes). Multi-line
+// wrapped headers (Alt+Enter) therefore appear as one quoted field spanning
+// several physical lines, so a naive split on "\n" would misalign columns.
+function parseDelimited(text){
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for(let i=0; i<text.length; i++){
+    const c = text[i];
+    if(inQuotes){
+      if(c === '"'){
+        if(text[i+1] === '"'){ field += '"'; i++; }
+        else { inQuotes = false; }
+      } else {
+        field += c;
+      }
+    } else {
+      if(c === '"' && field === ''){ inQuotes = true; }
+      else if(c === '\t'){ row.push(field); field = ''; }
+      else if(c === '\r'){ /* ignore, \n handles line breaks */ }
+      else if(c === '\n'){ row.push(field); rows.push(row); row = []; field = ''; }
+      else { field += c; }
+    }
+  }
+  if(field !== '' || row.length){ row.push(field); rows.push(row); }
+  return rows;
+}
+
+function parseTSV(text){
+  const rows = parseDelimited(text);
+  while(rows.length && rows[rows.length-1].every(c=>c.trim()==='')) rows.pop();
+  return rows.map(r => r.map(coerceCell));
+}
+
+function fmt(v, digits=2){
+  if(v===null || v===undefined || isNaN(v)) return '-';
+  return Number(v).toFixed(digits);
+}
+
+function addCumulativeOverRate(data){
+  // 엑셀 AR열과 동일한 로직: 4월부터 그 달까지 발행건수/초과건수를 누적해서 초과율을 계산.
+  // 1~3월은 "-" (평가 대상 아님).
+  let cumOver = 0, cumIssued = 0;
+  data.forEach(d=>{
+    if(d.month < 4){ d.cumOverRate = null; return; }
+    cumOver += d.overAvg;
+    cumIssued += d.issued;
+    d.cumOverRate = cumIssued>0 ? (cumOver/cumIssued*100) : null;
+  });
+  return data;
+}
+
+function renderTable(containerId, includePV){
+  const container = document.getElementById(containerId);
+  const months = STATE.monthsPresent;
+  const data = addCumulativeOverRate(months.map(m=>aggregateMonth(STATE.bprRows, STATE.bcrRows, m, includePV)));
+
+  let html = '<table><thead><tr><th rowspan="2">월</th><th rowspan="2">발행 건수</th>';
+  METRIC_KEYS.forEach(k=>{
+    html += `<th colspan="3">${METRIC_LABELS[k]}</th>`;
+  });
+  html += '<th colspan="5">목표초과</th></tr><tr>';
+  METRIC_KEYS.forEach(()=>{ html += '<th>BPR</th><th>BCR</th><th>합산</th>'; });
+  html += '<th>BPR</th><th>BCR</th><th>합산평균</th><th>초과율(%)</th><th>누적초과율(%)</th></tr></thead><tbody>';
+
+  data.forEach(d=>{
+    html += `<tr><td class="month-cell">${d.month}월</td><td>${d.issued}</td>`;
+    METRIC_KEYS.forEach(k=>{
+      const m = d.metrics[k];
+      html += `<td class="metric-group-bpr">${fmt(m.bpr)}</td><td class="metric-group-bcr">${fmt(m.bcr)}</td><td><b>${fmt(m.combined)}</b></td>`;
+    });
+    html += `<td class="metric-group-bpr">${d.bprOver}</td><td class="metric-group-bcr">${d.bcrOver}</td><td><b>${fmt(d.overAvg,1)}</b></td>`;
+    html += `<td class="${d.overRate>3.19?'over-target':''}">${fmt(d.overRate,2)}%</td>`;
+    html += `<td class="${d.cumOverRate!==null && d.cumOverRate>3.19?'over-target':''}">${d.cumOverRate!==null ? fmt(d.cumOverRate,2)+'%' : '-'}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+let chart3 = null, chart4 = null;
+const CHART_METRIC_KEYS = ['workerDelay','reviewTotal','revise','docPrepDelay'];
+const CHART_COLORS = ['#2f6f76','#c1682f','#3d4b63','#8a3b5e'];
+
+function renderChart3(includePV){
+  const months = STATE.monthsPresent;
+  const data = months.map(m=>aggregateMonth(STATE.bprRows, STATE.bcrRows, m, includePV));
+  const datasets = CHART_METRIC_KEYS.map((k,i)=>({
+    label: METRIC_LABELS[k],
+    data: data.map(d=>d.metrics[k].combined),
+    borderColor: CHART_COLORS[i],
+    backgroundColor: CHART_COLORS[i],
+    tension: .25,
+    spanGaps: true,
+  }));
+  const ctx = document.getElementById('chart3').getContext('2d');
+  if(chart3) chart3.destroy();
+  chart3 = new Chart(ctx, {
+    type:'line',
+    data:{ labels: months.map(m=>m+'월'), datasets },
+    options:{ responsive:true, maintainAspectRatio:false,
+      scales:{ y:{ title:{display:true, text:'소요일'} } },
+      plugins:{ legend:{position:'bottom'} } }
+  });
+}
+
+function renderChart4(includePV){
+  const months = STATE.monthsPresent;
+  const data = months.map(m=>aggregateMonth(STATE.bprRows, STATE.bcrRows, m, includePV));
+  const ctx = document.getElementById('chart4').getContext('2d');
+  if(chart4) chart4.destroy();
+  chart4 = new Chart(ctx, {
+    data:{
+      labels: months.map(m=>m+'월'),
+      datasets:[
+        { type:'bar', label:'목표초과 건수(합산평균)', data:data.map(d=>d.overAvg), backgroundColor:'#c1682f88', yAxisID:'y' },
+        { type:'line', label:'초과율(%)', data:data.map(d=>d.overRate), borderColor:'#1b2430', backgroundColor:'#1b2430', yAxisID:'y1', tension:.25 },
+      ]
+    },
+    options:{ responsive:true, maintainAspectRatio:false,
+      scales:{
+        y:{ position:'left', title:{display:true, text:'건수'}, beginAtZero:true },
+        y1:{ position:'right', title:{display:true, text:'초과율(%)'}, beginAtZero:true, grid:{drawOnChartArea:false} },
+      },
+      plugins:{ legend:{position:'bottom'} } }
+  });
+}
+
+// ---- events ----
+function loadFile(file){
+  document.getElementById('status').textContent = '읽는 중... ' + file.name;
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    try{
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array', cellDates:false});
+      handleWorkbook(wb);
+      document.getElementById('loadedFileName').textContent = '불러온 파일: ' + file.name;
+      document.getElementById('status').textContent = '';
+    }catch(err){
+      document.getElementById('status').textContent = '오류: ' + err.message;
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+document.getElementById('fileInput').addEventListener('change', e=>{
+  if(e.target.files[0]) loadFile(e.target.files[0]);
+});
+
+document.getElementById('applyPasteBtn').addEventListener('click', ()=>{
+  const bprText = document.getElementById('pasteBPR').value;
+  const bcrText = document.getElementById('pasteBCR').value;
+  const revText = document.getElementById('pasteRev').value;
+  const statusEl = document.getElementById('pasteStatus');
+  if(!bprText.trim() || !bcrText.trim()){
+    statusEl.textContent = 'BPR, BCR 데이터를 모두 붙여넣어 주세요.';
+    return;
+  }
+  try{
+    const bprRaw = parseTSV(bprText);
+    const bcrRaw = parseTSV(bcrText);
+    const ok = processSheets(bprRaw, bcrRaw);
+    let msg = ok ? `계산 완료 (BPR ${STATE.bprRows.length}건, BCR ${STATE.bcrRows.length}건 인식)` : '\u2018월\u2019 컬럼을 찾지 못했습니다. 헤더 행을 포함해 붙여넣었는지 확인해주세요.';
+
+    if(revText.trim()){
+      const revRaw = parseTSV(revText);
+      const revHeaderIdx = findRevisionHeaderRow(revRaw);
+      const revRows = extractRevisionRows(revRaw, revHeaderIdx);
+      if(revRows.length){
+        renderWorkerErrorTable(revRows);
+        msg += ` / 수정이력 ${revRows.length}건 인식`;
+      } else {
+        document.getElementById('t5desc').textContent = '수정 이력 데이터에서 \u2018작성자(1)\u2019 또는 \u2018월\u2019 컬럼을 찾지 못했습니다. 헤더 행부터 붙여넣었는지 확인해주세요.';
+      }
+    }
+
+    const teamText = document.getElementById('pasteTeam').value;
+    if(teamText.trim()){
+      const teamRaw = parseTSV(teamText);
+      const teamHeaderIdx = findTeamHeaderRow(teamRaw);
+      const teamRows = extractTeamRows(teamRaw, teamHeaderIdx);
+      if(teamRows.length){
+        renderTeamStats(teamRows);
+        msg += ` / 인원별 통계 ${teamRows.length}명 인식`;
+      } else {
+        document.getElementById('t7desc').textContent = '인원별 통계 데이터에서 \u2018성명\u2019 컬럼을 찾지 못했습니다. 헤더 행부터 붙여넣었는지 확인해주세요.';
+      }
+    }
+    statusEl.textContent = msg;
+  }catch(err){
+    statusEl.textContent = '오류: ' + err.message;
+  }
+});
+
+// 뷰(panel) 탭
+document.querySelectorAll('.tabs .tab[data-tab]').forEach(tab=>{
+  tab.addEventListener('click', ()=>{
+    document.querySelectorAll('.tabs .tab[data-tab]').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(tab.dataset.tab).classList.add('active');
+    requestAnimationFrame(()=>{
+      if(tab.dataset.tab==='t3' && chart3) chart3.resize();
+      if(tab.dataset.tab==='t4' && chart4) chart4.resize();
+      if(tab.dataset.tab==='t5' && chartWorker) chartWorker.resize();
+      if(tab.dataset.tab==='t7'){ if(chartTenure) chartTenure.resize(); if(chartTeam) chartTeam.resize(); }
+    });
+  });
+});
+
+// 입력방식(붙여넣기/파일) 탭
+document.querySelectorAll('.tabs .tab[data-inmode]').forEach(tab=>{
+  tab.addEventListener('click', ()=>{
+    document.querySelectorAll('.tabs .tab[data-inmode]').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    const mode = tab.dataset.inmode;
+    document.getElementById('pasteMode').style.display = mode==='paste' ? 'block' : 'none';
+    document.getElementById('fileMode').style.display = mode==='file' ? 'block' : 'none';
+  });
+});
+
+document.getElementById('pvToggle3').addEventListener('click', e=>{
+  const btn = e.target.closest('.toggle-btn'); if(!btn) return;
+  document.querySelectorAll('#pvToggle3 .toggle-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderChart3(btn.dataset.pv === '1');
+});
+document.getElementById('pvToggle4').addEventListener('click', e=>{
+  const btn = e.target.closest('.toggle-btn'); if(!btn) return;
+  document.querySelectorAll('#pvToggle4 .toggle-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderChart4(btn.dataset.pv === '1');
+});
+</script>
+</body>
+</html>
