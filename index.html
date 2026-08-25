@@ -354,6 +354,8 @@
 
       const colDateIso = {};
       { let monthOffset = 0, prevDay = null;
+        const firstDayInBlock = colDay[dataStartCol];
+        if(firstDayInBlock!=null && firstDayInBlock > daysInMonth(year, month)) monthOffset = -1;
         for(let c=dataStartCol; c<grid[dateRow].length; c++){
           if(colDay[c]==null) continue;
           if(prevDay!=null && colDay[c] < prevDay) monthOffset++;
@@ -601,7 +603,6 @@
     while(d <= end){ if(!isNonBiz(d)) count++; d = addDays(d, 1); }
     return count;
   }
-  // 시작일 자체가 근무일이면 그날을 1일째로 포함해서, n번째 근무일을 반환합니다.
   function nthBizDayFrom(d, n){
     let c = new Date(d);
     let count = isNonBiz(c) ? 0 : 1;
@@ -758,7 +759,7 @@
       msg1.appendChild(el('div', {class:'warnbox'}, [`✅ 배치 ${result.batches.length}건 인식됨` + (result.warnings.length? " / "+result.warnings.join(" · "):"")]));
       scheduleSave(); render();
     });
-    left.appendChild(el('div',{class:'hint'},["※ 여러 주(예: 1일~31일 전체)를 한번에 복사해 붙여넣으면 주 경계를 넘어가는 배치(예: 목요일 시작~다음주 화요일 완료)도 자동으로 이어붙입니다. 월말에서 다음 달로 넘어가는 것도(예: 31→1) 자동으로 인식합니다."]));
+    left.appendChild(el('div',{class:'hint'},["※ 여러 주(예: 1일~31일 전체)를 한번에 복사해 붙여넣으면 주 경계를 넘어가는 배치(예: 목요일 시작~다음주 화요일 완료)도 자동으로 이어붙입니다. 월말↔월초 경계도(양방향) 자동으로 인식합니다."]));
     cols.appendChild(left);
 
     const mid = el('div');
