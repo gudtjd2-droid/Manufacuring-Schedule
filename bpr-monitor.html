@@ -13,9 +13,9 @@
     --card:#ffffff;
     --line:#dde1de;
     --muted:#6b7580;
-    --bpr:#2f6f76;      /* teal - BPR */
-    --bcr:#c1682f;      /* burnt orange - BCR */
-    --combo:#3d4b63;    /* slate - 합산 */
+    --bpr:#2f6f76;
+    --bcr:#c1682f;
+    --combo:#3d4b63;
     --bad:#b3432b;
     --ok:#3c7a5a;
     --accent:#1b2430;
@@ -301,8 +301,6 @@ function aggregateMonth(bprRows, bcrRows, month, includePV){
   const bprAll = bprRows.filter(r=>r.month===month);
   const bcrAll = bcrRows.filter(r=>r.month===month);
 
-  // PV 포함 로직: "제외 안 된 배치" + "PV라는 사유로 제외됐던 배치"를 하나의 집합으로 묶어
-  // 건수 가중평균을 낸다 (예전처럼 두 평균을 단순히 더하면 이미 포함된 배치가 중복 반영됨).
   function selectSet(rows){
     if(!includePV) return rows.filter(r=>!r.excluded);
     return rows.filter(r=>!r.excluded || (r.excluded && r.reason === 'PV'));
@@ -321,7 +319,7 @@ function aggregateMonth(bprRows, bcrRows, month, includePV){
   const bprOver = bprSet.filter(r=>r.overTarget===1).length;
   const bcrOver = bcrSet.filter(r=>r.overTarget===1).length;
   const issued = bprAll.length;
-  const overAvg = (bprOver + bcrOver) / 2; // 엑셀 AP(합산평균)와 동일: BPR·BCR 초과건수의 평균
+  const overAvg = (bprOver + bcrOver) / 2;
   const overRate = issued>0 ? (overAvg/issued*100) : 0;
 
   return { month, issued, metrics, bprOver, bcrOver, overAvg, overRate };
@@ -397,7 +395,7 @@ const REV_COLS = {
 function isRealNote(v){
   if(v===undefined || v===null) return false;
   let t = String(v).trim();
-  t = t.replace(/^<[^>]*>\s*/, '').trim(); // strip leading <BATCHNO> tag
+  t = t.replace(/^<[^>]*>\s*/, '').trim();
   if(t==='' || t==='ㅡ' || t==='-' || t==='.') return false;
   return true;
 }
@@ -432,7 +430,7 @@ function findRevisionHeaderRow(rows){
 function computeWorkerMonthlyErrors(revRows){
   const workers = Array.from(new Set(revRows.map(r=>r.worker))).sort();
   const months = Array.from(new Set(revRows.map(r=>r.month))).sort((a,b)=>a-b);
-  const table = {}; // worker -> month -> count
+  const table = {};
   workers.forEach(w=>{ table[w] = {}; months.forEach(m=>table[w][m]=0); });
   revRows.forEach(r=>{
     const n = (r.bprHas?1:0) + (r.bcrHas?1:0);
@@ -475,7 +473,6 @@ function renderWorkerErrorTable(revRows){
 }
 let chartWorker = null;
 
-// ---- 26년_통계_제조팀 (인원별 통계: 연차, 오류유형별) ----
 const TEAM_COLS = {
   team: ['소속',0], tenure: ['입사년차',0], name: ['성명',0],
   totalCount: ['BPR+BCR건수',0],
@@ -559,7 +556,6 @@ function renderTeamStats(rows){
   html += '</tbody></table></div>';
   document.getElementById('t7body').innerHTML = html;
 
-  // 연차별 총오류수 합계
   const bucketOrder = ['1년차 이하','2~3년차','4~6년차','7~10년차','11년차 이상','미상'];
   const bucketSums = {};
   bucketOrder.forEach(b=>bucketSums[b]=0);
@@ -575,7 +571,6 @@ function renderTeamStats(rows){
       scales:{ y:{ beginAtZero:true, title:{display:true,text:'건수'} } } }
   });
 
-  // 소속(팀)별 총오류수 합계
   const teams = Array.from(new Set(rows.map(r=>r.team))).filter(Boolean);
   const teamSums = teams.map(t=>rows.filter(r=>r.team===t).reduce((s,r)=>s+r.totalErr,0));
 
@@ -589,9 +584,8 @@ function renderTeamStats(rows){
   });
 }
 
-// ---- formula error scan (file mode only) ----
 function scanFormulaErrors(wb){
-  const groups = {}; // key: sheet|error -> {sheet,error,count,examples:[],formula}
+  const groups = {};
   wb.SheetNames.forEach(sheetName=>{
     const ws = wb.Sheets[sheetName];
     Object.keys(ws).forEach(addr=>{
@@ -632,10 +626,6 @@ function coerceCell(raw){
   return t;
 }
 
-// Excel clipboard uses tab-separated fields, and wraps any field containing
-// a tab/newline/quote in double quotes (doubling internal quotes). Multi-line
-// wrapped headers (Alt+Enter) therefore appear as one quoted field spanning
-// several physical lines, so a naive split on "\n" would misalign columns.
 function parseDelimited(text){
   const rows = [];
   let row = [], field = '', inQuotes = false;
@@ -651,7 +641,7 @@ function parseDelimited(text){
     } else {
       if(c === '"' && field === ''){ inQuotes = true; }
       else if(c === '\t'){ row.push(field); field = ''; }
-      else if(c === '\r'){ /* ignore, \n handles line breaks */ }
+      else if(c === '\r'){ }
       else if(c === '\n'){ row.push(field); rows.push(row); row = []; field = ''; }
       else { field += c; }
     }
@@ -672,8 +662,6 @@ function fmt(v, digits=2){
 }
 
 function addCumulativeOverRate(data){
-  // 엑셀 AR열과 동일한 로직: 4월부터 그 달까지 발행건수/초과건수를 누적해서 초과율을 계산.
-  // 1~3월은 "-" (평가 대상 아님).
   let cumOver = 0, cumIssued = 0;
   data.forEach(d=>{
     if(d.month < 4){ d.cumOverRate = null; return; }
@@ -759,7 +747,6 @@ function renderChart4(includePV){
   });
 }
 
-// ---- events ----
 function loadFile(file){
   document.getElementById('status').textContent = '읽는 중... ' + file.name;
   const reader = new FileReader();
@@ -794,7 +781,7 @@ document.getElementById('applyPasteBtn').addEventListener('click', ()=>{
     const bprRaw = parseTSV(bprText);
     const bcrRaw = parseTSV(bcrText);
     const ok = processSheets(bprRaw, bcrRaw);
-    let msg = ok ? `계산 완료 (BPR ${STATE.bprRows.length}건, BCR ${STATE.bcrRows.length}건 인식)` : '\u2018월\u2019 컬럼을 찾지 못했습니다. 헤더 행을 포함해 붙여넣었는지 확인해주세요.';
+    let msg = ok ? `계산 완료 (BPR ${STATE.bprRows.length}건, BCR ${STATE.bcrRows.length}건 인식)` : '월 컬럼을 찾지 못했습니다. 헤더 행을 포함해 붙여넣었는지 확인해주세요.';
 
     if(revText.trim()){
       const revRaw = parseTSV(revText);
@@ -804,7 +791,7 @@ document.getElementById('applyPasteBtn').addEventListener('click', ()=>{
         renderWorkerErrorTable(revRows);
         msg += ` / 수정이력 ${revRows.length}건 인식`;
       } else {
-        document.getElementById('t5desc').textContent = '수정 이력 데이터에서 \u2018작성자(1)\u2019 또는 \u2018월\u2019 컬럼을 찾지 못했습니다. 헤더 행부터 붙여넣었는지 확인해주세요.';
+        document.getElementById('t5desc').textContent = '수정 이력 데이터에서 작성자(1) 또는 월 컬럼을 찾지 못했습니다. 헤더 행부터 붙여넣었는지 확인해주세요.';
       }
     }
 
@@ -817,7 +804,7 @@ document.getElementById('applyPasteBtn').addEventListener('click', ()=>{
         renderTeamStats(teamRows);
         msg += ` / 인원별 통계 ${teamRows.length}명 인식`;
       } else {
-        document.getElementById('t7desc').textContent = '인원별 통계 데이터에서 \u2018성명\u2019 컬럼을 찾지 못했습니다. 헤더 행부터 붙여넣었는지 확인해주세요.';
+        document.getElementById('t7desc').textContent = '인원별 통계 데이터에서 성명 컬럼을 찾지 못했습니다. 헤더 행부터 붙여넣었는지 확인해주세요.';
       }
     }
     statusEl.textContent = msg;
@@ -826,7 +813,6 @@ document.getElementById('applyPasteBtn').addEventListener('click', ()=>{
   }
 });
 
-// 뷰(panel) 탭
 document.querySelectorAll('.tabs .tab[data-tab]').forEach(tab=>{
   tab.addEventListener('click', ()=>{
     document.querySelectorAll('.tabs .tab[data-tab]').forEach(t=>t.classList.remove('active'));
@@ -842,7 +828,6 @@ document.querySelectorAll('.tabs .tab[data-tab]').forEach(tab=>{
   });
 });
 
-// 입력방식(붙여넣기/파일) 탭
 document.querySelectorAll('.tabs .tab[data-inmode]').forEach(tab=>{
   tab.addEventListener('click', ()=>{
     document.querySelectorAll('.tabs .tab[data-inmode]').forEach(t=>t.classList.remove('active'));
