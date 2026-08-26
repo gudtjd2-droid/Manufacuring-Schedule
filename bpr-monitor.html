@@ -83,6 +83,9 @@
 
   .chart-box{position:relative; height:360px;}
   .legend-note{font-size:11.5px; color:var(--muted); margin-top:10px;}
+  .threshold-legend{display:flex; gap:18px; flex-wrap:wrap; margin-top:10px; font-size:11.5px;}
+  .threshold-legend .item{display:inline-flex; align-items:center; gap:6px; font-weight:600;}
+  .threshold-legend .dash{display:inline-block; width:22px; height:0; border-top:2px dashed currentColor;}
 
   .empty{padding:60px 20px; text-align:center; color:var(--muted);}
   .assumptions{font-size:11.5px; color:var(--muted); background:#eef0ee; border-radius:8px; padding:12px 14px; margin-top:8px;}
@@ -186,6 +189,11 @@
       </div>
       <div class="chart-box" style="height:440px;"><canvas id="chart3"></canvas></div>
       <div class="legend-note">작업자제출지연일 / 수정소요일 / 중간체 검토소요일 / 원료의약품 검토소요일 / 중간체 접수소요일 / 원료의약품 접수소요일 — BPR·BCR 합산평균 기준, 그래프 위 숫자는 해당 월 값</div>
+      <div class="threshold-legend">
+        <span class="item" style="color:#2e7d32;"><span class="dash"></span>BPR,BCR 검토소요일 목표: 0.90일</span>
+        <span class="item" style="color:#1565c0;"><span class="dash"></span>중간체 BPR,BCR 접수지연일 목표: 1.20일</span>
+        <span class="item" style="color:#c62828;"><span class="dash"></span>API BPR,BCR 접수지연일 목표: 1.04일</span>
+      </div>
     </div></div>
 
     <div class="panel" id="t4"><div class="card">
@@ -196,6 +204,9 @@
       </div>
       <div class="chart-box"><canvas id="chart4"></canvas></div>
       <div class="legend-note">막대 = 목표소요일 초과 건수 합계(BPR+BCR) · 선 = 발행 건수 대비 초과율(%)</div>
+      <div class="threshold-legend">
+        <span class="item" style="color:#c62828;"><span class="dash"></span>접수목표일 초과율 목표: 3.19%</span>
+      </div>
     </div></div>
 
     <div class="panel" id="t5"><div class="card">
@@ -274,11 +285,12 @@ const METRIC_LABELS = {
 };
 const METRIC_KEYS = Object.keys(METRIC_LABELS);
 
+// 항목별 합산평균 기준값(목표). 기준 이하(=포함) → 파란색, 초과 → 빨간색.
 const METRIC_TARGETS = {
-  midReview: 0.90,
-  apiReview: 0.90,
-  midReceipt: 1.20,
-  apiReceipt: 1.04,
+  midReview: 0.90,   // 중간체 검토소요일
+  apiReview: 0.90,   // 원료의약품 검토소요일
+  midReceipt: 1.20,  // 중간체 접수소요일
+  apiReceipt: 1.04,  // 원료의약품 접수소요일
 };
 
 function buildHeaderMap(rows, headerRowIdx){
@@ -505,9 +517,9 @@ function extractRevisionRows(rows, headerRowIdx){
         categoryBlocks.forEach(block=>{
           const roleCols = block.roles[roleKey];
           if(!roleCols) return;
-          const bprFlag = (roleCols.bpr!==undefined && row[roleCols.bpr]===1);
-          const bcrFlag = (roleCols.bcr!==undefined && row[roleCols.bcr]===1);
-          const count = (bprFlag?1:0) + (bcrFlag?1:0);
+          const bprVal = (roleCols.bpr!==undefined && typeof row[roleCols.bpr]==='number') ? row[roleCols.bpr] : 0;
+          const bcrVal = (roleCols.bcr!==undefined && typeof row[roleCols.bcr]==='number') ? row[roleCols.bcr] : 0;
+          const count = bprVal + bcrVal;
           if(count>0){ out.push({ month, worker:name, category:block.key, count }); }
         });
       });
@@ -699,7 +711,13 @@ let TEAM_ROWS_CACHE = [];
 function renderTeamStats(rows, period){
   period = period || '12';
   TEAM_ROWS_CACHE = rows;
-  document.getElementById('t7desc').textContent = `총 ${rows.length}명의 인원별 통계를 인식했습니다. (${period==='12' ? '1~12월' : '4~9월'} 기준)`;
+  const allTenureMissing = rows.every(r=>r.tenure===null);
+  const allTeamMissing = rows.every(r=>!r.team);
+  let descText = `총 ${rows.length}명의 인원별 통계를 인식했습니다. (${period==='12' ? '1~12월' : '4~9월'} 기준)`;
+  if(allTenureMissing || allTeamMissing){
+    descText += ` ⚠ '소속'·'입사년차' 값을 못 읽었어요 — ④번 칸에 붙여넣으실 때 맨 왼쪽 'A열(소속)'부터 포함해서 복사하셨는지 확인해주세요 (성명 열부터 붙여넣으면 이 두 컬럼이 빠져요).`;
+  }
+  document.getElementById('t7desc').textContent = descText;
 
   let html = '<div class="toggle-row" id="periodToggle7">'
     + '<div class="toggle-btn' + (period==='12'?' active':'') + '" data-period="12">1~12월</div>'
@@ -887,36 +905,41 @@ const CHART_COLORS = ['#2f6f76','#6b4a2f','#29b6c9','#1b3a8a','#e0a25c','#c1372f
 function renderChart3(includePV){
   const months = STATE.monthsPresent;
   const data = months.map(m=>aggregateMonth(STATE.bprRows, STATE.bcrRows, m, includePV));
-  const datasets = CHART_METRIC_KEYS.map((k,i)=>({
-    label: METRIC_LABELS[k],
-    data: data.map(d=>d.metrics[k].combined),
-    borderColor: CHART_COLORS[i],
-    backgroundColor: CHART_COLORS[i],
-    tension: .25,
-    spanGaps: true,
-    datalabels: {
-      color: CHART_COLORS[i],
-      align: (i % 2 === 0) ? 'top' : 'bottom',
-      anchor: (i % 2 === 0) ? 'end' : 'start',
-      offset: 4 + (i % 3) * 4,
-      font: { size: 9, weight: '600' },
-      formatter: v => (v===null || v===undefined) ? '' : v.toFixed(2),
-    },
-  }));
+  const LABEL_POS = {
+    workerDelay: { align:'top', anchor:'end', offset:3 },
+    revise:      { align:'top', anchor:'end', offset:13 },
+    midReview:   { align:'topLeft', anchor:'end', offset:6 },
+    apiReview:   { align:'bottomLeft', anchor:'end', offset:6 },
+    midReceipt:  { align:'topRight', anchor:'end', offset:6 },
+    apiReceipt:  { align:'bottomRight', anchor:'end', offset:6 },
+  };
+  const datasets = CHART_METRIC_KEYS.map((k,i)=>{
+    const pos = LABEL_POS[k];
+    return {
+      label: METRIC_LABELS[k],
+      data: data.map(d=>d.metrics[k].combined),
+      borderColor: CHART_COLORS[i],
+      backgroundColor: CHART_COLORS[i],
+      tension: .25,
+      spanGaps: true,
+      datalabels: {
+        color: CHART_COLORS[i],
+        align: pos.align,
+        anchor: pos.anchor,
+        offset: pos.offset,
+        font: { size: 9, weight: '600' },
+        formatter: v => (v===null || v===undefined) ? '' : v.toFixed(2),
+      },
+    };
+  });
 
   const flat = v => months.map(()=>v);
-  const labelIdx = Math.max(0, months.length - 3);
   function thresholdDataset(text, value, color){
     return {
       label: text, data: flat(value), borderColor: color,
       borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false,
       hideFromLegend: true,
-      datalabels: {
-        display: (ctx)=> ctx.dataIndex === labelIdx,
-        align:'top', anchor:'end', offset:6,
-        color: color, font:{ size:10, weight:'700' },
-        formatter: ()=> text,
-      },
+      datalabels: { display:false },
     };
   }
   datasets.push(
@@ -931,7 +954,7 @@ function renderChart3(includePV){
     type:'line',
     data:{ labels: months.map(m=>m+'월'), datasets },
     options:{ responsive:true, maintainAspectRatio:false,
-      layout:{ padding:{ top:20, bottom:10 } },
+      layout:{ padding:{ top:20, bottom:16, right:8 } },
       scales:{ y:{ title:{display:true, text:'소요일'} } },
       plugins:{
         legend:{position:'top', labels:{ filter: (item, chartData)=> !chartData.datasets[item.datasetIndex].hideFromLegend } },
@@ -945,7 +968,6 @@ function renderChart4(includePV){
   const data = months.map(m=>aggregateMonth(STATE.bprRows, STATE.bcrRows, m, includePV));
   const ctx = document.getElementById('chart4').getContext('2d');
   if(chart4) chart4.destroy();
-  const thresholdLabelIdx = Math.max(0, months.length - 3);
   chart4 = new Chart(ctx, {
     data:{
       labels: months.map(m=>m+'월'),
@@ -956,8 +978,7 @@ function renderChart4(includePV){
           datalabels:{ color:'#1b2430', anchor:'end', align:'bottom', offset:6, font:{size:10,weight:'600'}, formatter:v=>v.toFixed(2) } },
         { type:'line', label:'접수목표일 초과율 목표: 3.19%', data:months.map(()=>3.19), yAxisID:'y1', borderColor:'#c62828', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false,
           hideFromLegend:true,
-          datalabels:{ display: (ctx)=> ctx.dataIndex===thresholdLabelIdx, align:'top', anchor:'end', offset:6,
-            color:'#c62828', font:{size:10,weight:'700'}, formatter:()=>'접수목표일 초과율 목표: 3.19%' } },
+          datalabels:{ display:false } },
       ]
     },
     options:{ responsive:true, maintainAspectRatio:false,
