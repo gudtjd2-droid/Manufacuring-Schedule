@@ -70,6 +70,8 @@
   .metric-group-bpr{background:rgba(47,111,118,.07);}
   .metric-group-bcr{background:rgba(193,104,47,.07);}
   .over-target{color:var(--bad); font-weight:700;}
+  .target-ok{color:#1565c0; font-weight:700;}
+  .target-over{color:var(--bad); font-weight:700;}
   .table-scroll{overflow-x:auto;}
 
   .toggle-row{display:flex; gap:8px; margin-bottom:14px;}
@@ -141,8 +143,8 @@
     <div class="tabs">
       <div class="tab active" data-tab="t1">1. PV 제외 · 월별 전체 품목</div>
       <div class="tab" data-tab="t2">2. PV 포함 · 월별 전체 품목</div>
-      <div class="tab" data-tab="t3">3. 항목별 소요일 추이</div>
-      <div class="tab" data-tab="t4">4. 목표초과 건수 추이</div>
+      <div class="tab" data-tab="t3">3. BPR,BCR 진행 소요일 추이</div>
+      <div class="tab" data-tab="t4">4. BPR,BCR 접수목표일 초과 건수 추이</div>
       <div class="tab" data-tab="t5">5. 작업자별 월별 오류 건수</div>
       <div class="tab" data-tab="t7">7. 인원별 통계(연차·항목별)</div>
       <div class="tab" data-tab="t6">6. 수식 오류 검사</div>
@@ -161,7 +163,7 @@
     </div></div>
 
     <div class="panel" id="t3"><div class="card">
-      <h2>항목별 월별 소요일 추이</h2>
+      <h2>BPR, BCR 진행 소요일 합계 평균 월별 추이 (모니터링 기간)</h2>
       <div class="toggle-row" id="pvToggle3">
         <div class="toggle-btn active" data-pv="0">PV 제외</div>
         <div class="toggle-btn" data-pv="1">PV 포함</div>
@@ -171,7 +173,7 @@
     </div></div>
 
     <div class="panel" id="t4"><div class="card">
-      <h2>목표소요일 초과 건수 · 초과율 추이</h2>
+      <h2>BPR, BCR 접수목표일 초과 건수 합계 평균 월별 추이 (모니터링 기간)</h2>
       <div class="toggle-row" id="pvToggle4">
         <div class="toggle-btn active" data-pv="0">PV 제외</div>
         <div class="toggle-btn" data-pv="1">PV 포함</div>
@@ -261,6 +263,14 @@ const METRIC_LABELS = {
   apiReceipt: '원료의약품 접수소요일',
 };
 const METRIC_KEYS = Object.keys(METRIC_LABELS);
+
+// 항목별 합산평균 기준값(목표). 기준 이하(=포함) → 파란색, 초과 → 빨간색.
+const METRIC_TARGETS = {
+  midReview: 0.90,   // 중간체 검토소요일
+  apiReview: 0.90,   // 원료의약품 검토소요일
+  midReceipt: 1.20,  // 중간체 접수소요일
+  apiReceipt: 1.04,  // 원료의약품 접수소요일
+};
 
 function buildHeaderMap(rows, headerRowIdx){
   const map = {};
@@ -407,6 +417,55 @@ function isRealNote(v){
   return true;
 }
 
+const NAME_CORRECTIONS = {
+  '감준기': '김준기',
+  '운상석': '윤상석',
+  '허융': '허웅',
+};
+function correctWorkerName(name){
+  return NAME_CORRECTIONS[name] || name;
+}
+
+const ERROR_CATEGORY_DEFS = [
+  { key: 'simple', label: '단순오류' },
+  { key: 'unclear', label: '불명확업무절차' },
+  { key: 'noncompliance', label: '절차미준수' },
+  { key: 'physical', label: '물리적오류' },
+  { key: 'etc', label: '기타오류' },
+];
+const ROLE_FLAG_DEFS = [
+  { roleKey: 'worker1', bprLabel: '작성자(1)BPR', bcrLabel: '작성자(1)BCR' },
+  { roleKey: 'confirmer1', bprLabel: '확인자(1)BPR', bcrLabel: '확인자(1)BCR' },
+  { roleKey: 'worker2', bprLabel: '작성자(2)BPR', bcrLabel: '작성자(2)BCR' },
+  { roleKey: 'confirmer2', bprLabel: '확인자(2)BPR', bcrLabel: '확인자(2)BCR' },
+];
+
+function baseLabel(h){
+  return norm(h).replace(/\d+$/, '');
+}
+function buildBaseLabelMap(headerRow){
+  const map = {};
+  headerRow.forEach((h,i)=>{
+    const key = baseLabel(h);
+    if(!key) return;
+    if(!map[key]) map[key] = [];
+    map[key].push(i);
+  });
+  return map;
+}
+function buildCategoryFlagBlocks(headerRow){
+  const blockMap = buildBaseLabelMap(headerRow);
+  return ERROR_CATEGORY_DEFS.map((cat, catIdx) => {
+    const roles = {};
+    ROLE_FLAG_DEFS.forEach(rd => {
+      const bprList = blockMap[baseLabel(rd.bprLabel)] || [];
+      const bcrList = blockMap[baseLabel(rd.bcrLabel)] || [];
+      roles[rd.roleKey] = { bpr: bprList[catIdx], bcr: bcrList[catIdx] };
+    });
+    return { key: cat.key, label: cat.label, roles };
+  });
+}
+
 function isValidWorkerName(name){
   if(!name || name==='-') return false;
   if(name.startsWith('#')) return false;
@@ -418,6 +477,10 @@ function extractRevisionRows(rows, headerRowIdx){
   const map = buildHeaderMap(rows, headerRowIdx);
   const idx = {};
   Object.keys(REV_COLS).forEach(k=>{ idx[k] = map[norm(REV_COLS[k])]; });
+
+  const categoryBlocks = buildCategoryFlagBlocks(rows[headerRowIdx] || []);
+  const hasCategoryCols = categoryBlocks.some(b => Object.values(b.roles).some(r => r.bpr!==undefined || r.bcr!==undefined));
+
   const out = [];
   for(let r=headerRowIdx+1; r<rows.length; r++){
     const row = rows[r];
@@ -425,19 +488,40 @@ function extractRevisionRows(rows, headerRowIdx){
     const monthLetter = row[idx.month];
     if(!monthLetter || !LETTER_TO_MONTH[String(monthLetter).trim()]) continue;
     const month = LETTER_TO_MONTH[String(monthLetter).trim()];
-    const bprHas = isRealNote(idx.bprNote!==undefined ? row[idx.bprNote] : undefined);
-    const bcrHas = isRealNote(idx.bcrNote!==undefined ? row[idx.bcrNote] : undefined);
-    const namesInRow = new Set();
-    REV_ROLE_KEYS.forEach(roleKey=>{
-      const colIdx = idx[roleKey];
-      const v = colIdx!==undefined ? row[colIdx] : undefined;
-      const name = (v!==undefined && v!==null) ? String(v).trim() : '';
-      if(isValidWorkerName(name)) namesInRow.add(name);
-    });
-    namesInRow.forEach(worker=>{
-      out.push({ month, worker, bprHas, bcrHas });
-    });
+
+    if(hasCategoryCols){
+      REV_ROLE_KEYS.forEach(roleKey=>{
+        const colIdx = idx[roleKey];
+        const v = colIdx!==undefined ? row[colIdx] : undefined;
+        const name = (v!==undefined && v!==null) ? correctWorkerName(String(v).trim()) : '';
+        if(!isValidWorkerName(name)) return;
+
+        categoryBlocks.forEach(block=>{
+          const roleCols = block.roles[roleKey];
+          if(!roleCols) return;
+          const bprFlag = (roleCols.bpr!==undefined && row[roleCols.bpr]===1);
+          const bcrFlag = (roleCols.bcr!==undefined && row[roleCols.bcr]===1);
+          const count = (bprFlag?1:0) + (bcrFlag?1:0);
+          if(count>0){ out.push({ month, worker:name, category:block.key, count }); }
+        });
+      });
+    } else {
+      const bprHas = isRealNote(idx.bprNote!==undefined ? row[idx.bprNote] : undefined);
+      const bcrHas = isRealNote(idx.bcrNote!==undefined ? row[idx.bcrNote] : undefined);
+      const count = (bprHas?1:0) + (bcrHas?1:0);
+      if(count>0){
+        const namesInRow = new Set();
+        REV_ROLE_KEYS.forEach(roleKey=>{
+          const colIdx = idx[roleKey];
+          const v = colIdx!==undefined ? row[colIdx] : undefined;
+          const name = (v!==undefined && v!==null) ? correctWorkerName(String(v).trim()) : '';
+          if(isValidWorkerName(name)) namesInRow.add(name);
+        });
+        namesInRow.forEach(worker=>{ out.push({ month, worker, category:'approx', count }); });
+      }
+    }
   }
+  out.usedCategoryMethod = hasCategoryCols;
   return out;
 }
 
@@ -453,21 +537,44 @@ function computeWorkerMonthlyErrors(revRows){
   const workers = Array.from(new Set(revRows.map(r=>r.worker))).sort();
   const months = Array.from(new Set(revRows.map(r=>r.month))).sort((a,b)=>a-b);
   const table = {};
-  workers.forEach(w=>{ table[w] = {}; months.forEach(m=>table[w][m]=0); });
+  const catTotals = {};
+  workers.forEach(w=>{ table[w] = {}; months.forEach(m=>table[w][m]=0); catTotals[w] = {}; });
   revRows.forEach(r=>{
-    const n = (r.bprHas?1:0) + (r.bcrHas?1:0);
-    if(n>0) table[r.worker][r.month] += n;
+    table[r.worker][r.month] += r.count;
+    catTotals[r.worker][r.category] = (catTotals[r.worker][r.category]||0) + r.count;
   });
   const totals = workers.map(w=>({ worker: w, total: months.reduce((s,m)=>s+table[w][m],0) }))
     .sort((a,b)=>b.total-a.total);
-  return { workers: totals.map(t=>t.worker), months, table, totals };
+  return { workers: totals.map(t=>t.worker), months, table, totals, catTotals };
 }
 
 function renderWorkerErrorTable(revRows){
-  const { workers, months, table, totals } = computeWorkerMonthlyErrors(revRows);
-  document.getElementById('t5desc').textContent = `총 ${revRows.length}건의 수정 이력 기록을 인식했습니다. (작성자 정보 없는 행은 제외)`;
+  const { workers, months, table, totals, catTotals } = computeWorkerMonthlyErrors(revRows);
+  const usedCategoryMethod = revRows.usedCategoryMethod;
+  document.getElementById('t5desc').textContent = usedCategoryMethod
+    ? `총 ${revRows.length}건의 분류된 오류를 인식했습니다 (정식 오류유형 분류 컬럼 기준 — '26년_통계_제조팀' 시트와 동일한 방식).`
+    : `총 ${revRows.length}건의 수정 이력을 인식했습니다. ※ 오류유형 분류 컬럼(작성자(1) BPR 등, Y~CP열)이 붙여넣기 범위에 없어서, '수정 사항' 텍스트 유무로 대략 집계한 근사치입니다 — '26년_통계_제조팀' 탭 수치와 다를 수 있어요. 정확히 맞추려면 ③번 칸에 헤더 행부터 CP열까지 전체 너비로 다시 붙여넣어주세요.`;
 
-  let html = '<div class="chart-box" style="height:280px; margin-bottom:20px;"><canvas id="chartWorker"></canvas></div>';
+  const workerChartHeight = Math.max(280, workers.length * 26 + 40);
+  let html = `<div class="chart-box" style="height:${workerChartHeight}px; margin-bottom:20px;"><canvas id="chartWorker"></canvas></div>`;
+
+  if(usedCategoryMethod){
+    html += '<h3 style="font-size:13px; margin:0 0 8px;">작업자별 오류유형 분류</h3>';
+    html += '<div class="table-scroll" style="margin-bottom:20px;"><table><thead><tr><th>작업자</th>';
+    ERROR_CATEGORY_DEFS.forEach(c=> html += `<th>${c.label}</th>`);
+    html += '<th>합계</th></tr></thead><tbody>';
+    workers.forEach(w=>{
+      html += `<tr><td class="month-cell">${w}</td>`;
+      ERROR_CATEGORY_DEFS.forEach(c=>{
+        const v = catTotals[w][c.key]||0;
+        html += `<td class="${v>0?'over-target':''}">${v||'-'}</td>`;
+      });
+      html += `<td><b>${totals.find(t=>t.worker===w).total}</b></td></tr>`;
+    });
+    html += '</tbody></table></div>';
+  }
+
+  html += '<h3 style="font-size:13px; margin:0 0 8px;">작업자별 월별 오류 건수</h3>';
   html += '<div class="table-scroll"><table><thead><tr><th>작업자</th>';
   months.forEach(m=> html += `<th>${m}월</th>`);
   html += '<th>합계</th></tr></thead><tbody>';
@@ -488,10 +595,14 @@ function renderWorkerErrorTable(revRows){
   chartWorker = new Chart(ctx, {
     type:'bar',
     data:{ labels: workers, datasets:[{ label:'총 오류 건수', data: workers.map(w=>totals.find(t=>t.worker===w).total), backgroundColor:'#c1682f88',
-      datalabels:{ color:'#8a4520', anchor:'end', align:'end', font:{size:10,weight:'600'}, formatter:v=>v>0?v:'' } }] },
+      barPercentage:0.7, categoryPercentage:0.8,
+      datalabels:{ color:'#8a4520', anchor:'end', align:'end', font:{size:11,weight:'600'}, formatter:v=>v>0?v:'' } }] },
     options:{ responsive:true, maintainAspectRatio:false, indexAxis:'y',
-      layout:{ padding:{ right:24 } },
-      scales:{ x:{ title:{display:true, text:'건수'}, beginAtZero:true } },
+      layout:{ padding:{ right:28 } },
+      scales:{
+        x:{ title:{display:true, text:'건수'}, beginAtZero:true },
+        y:{ ticks:{ font:{size:11} } },
+      },
       plugins:{ legend:{display:false} } }
   });
 }
@@ -550,21 +661,13 @@ function extractTeamRows(rows, headerRowIdx){
   }
   return out;
 }
-function tenureBucket(t){
-  if(t===null) return '미상';
-  if(t<=1) return '1년차 이하';
-  if(t<=3) return '2~3년차';
-  if(t<=6) return '4~6년차';
-  if(t<=10) return '7~10년차';
-  return '11년차 이상';
-}
 let chartTenure = null, chartTeam = null;
 function renderTeamStats(rows){
   document.getElementById('t7desc').textContent = `총 ${rows.length}명의 인원별 통계를 인식했습니다.`;
 
   let html = '<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;">';
-  html += '<div class="chart-box" style="height:280px;"><canvas id="chartTenure"></canvas></div>';
-  html += '<div class="chart-box" style="height:280px;"><canvas id="chartTeam"></canvas></div>';
+  html += '<div class="chart-box" style="height:300px;"><canvas id="chartTenure"></canvas></div>';
+  html += '<div class="chart-box" style="height:300px;"><canvas id="chartTeam"></canvas></div>';
   html += '</div>';
 
   const sorted = [...rows].sort((a,b)=>b.totalErr-a.totalErr);
@@ -580,35 +683,66 @@ function renderTeamStats(rows){
   html += '</tbody></table></div>';
   document.getElementById('t7body').innerHTML = html;
 
-  const bucketOrder = ['1년차 이하','2~3년차','4~6년차','7~10년차','11년차 이상','미상'];
-  const bucketSums = {};
-  bucketOrder.forEach(b=>bucketSums[b]=0);
-  rows.forEach(r=>{ bucketSums[tenureBucket(r.tenure)] += r.totalErr; });
-  const bucketsUsed = bucketOrder.filter(b=>bucketSums[b]>0 || rows.some(r=>tenureBucket(r.tenure)===b));
+  const yearGroups = {};
+  rows.forEach(r=>{
+    const key = (r.tenure===null) ? '미상' : `${r.tenure}년차`;
+    if(!yearGroups[key]) yearGroups[key] = { sum:0, count:0 };
+    yearGroups[key].sum += r.totalErr;
+    yearGroups[key].count += 1;
+  });
+  const yearLabels = Object.keys(yearGroups).sort((a,b)=>{
+    if(a==='미상') return 1;
+    if(b==='미상') return -1;
+    return parseInt(a) - parseInt(b);
+  });
+  const yearSums = yearLabels.map(k=>yearGroups[k].sum);
+  const yearAvgs = yearLabels.map(k=>yearGroups[k].sum / yearGroups[k].count);
 
   const ctxT = document.getElementById('chartTenure').getContext('2d');
   if(chartTenure) chartTenure.destroy();
   chartTenure = new Chart(ctxT, {
-    type:'bar',
-    data:{ labels: bucketsUsed, datasets:[{ label:'연차별 총오류수', data: bucketsUsed.map(b=>bucketSums[b]), backgroundColor:'#2f6f7688',
-      datalabels:{ color:'#1c4a4f', anchor:'end', align:'top', font:{size:10,weight:'600'}, formatter:v=>v>0?v:'' } }] },
+    data:{
+      labels: yearLabels,
+      datasets:[
+        { type:'bar', label:'총오류수', data: yearSums, backgroundColor:'#2f6f7688', yAxisID:'y',
+          datalabels:{ color:'#1c4a4f', anchor:'end', align:'top', font:{size:9,weight:'600'}, formatter:v=>v>0?v:'' } },
+        { type:'line', label:'인당 평균 오류수', data: yearAvgs, borderColor:'#c1682f', backgroundColor:'#c1682f', yAxisID:'y1', tension:.25, borderWidth:2,
+          datalabels:{ color:'#8a4520', anchor:'end', align:'bottom', offset:4, font:{size:9,weight:'600'}, formatter:v=>v.toFixed(1) } },
+      ]
+    },
     options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:18}},
-      plugins:{ legend:{display:false}, title:{display:true,text:'입사연차별 총오류수 합계'} },
-      scales:{ y:{ beginAtZero:true, title:{display:true,text:'건수'} } } }
+      plugins:{ legend:{position:'bottom'}, title:{display:true,text:'입사연차별 총오류수 · 인당 평균'} },
+      scales:{
+        y:{ position:'left', beginAtZero:true, title:{display:true,text:'총오류수'} },
+        y1:{ position:'right', beginAtZero:true, title:{display:true,text:'인당 평균'}, grid:{drawOnChartArea:false} },
+      } }
   });
 
   const teams = Array.from(new Set(rows.map(r=>r.team))).filter(Boolean);
   const teamSums = teams.map(t=>rows.filter(r=>r.team===t).reduce((s,r)=>s+r.totalErr,0));
+  const teamAvgs = teams.map(t=>{
+    const members = rows.filter(r=>r.team===t);
+    return members.reduce((s,r)=>s+r.totalErr,0) / members.length;
+  });
 
   const ctxTm = document.getElementById('chartTeam').getContext('2d');
   if(chartTeam) chartTeam.destroy();
   chartTeam = new Chart(ctxTm, {
-    type:'bar',
-    data:{ labels: teams, datasets:[{ label:'소속별 총오류수', data: teamSums, backgroundColor:'#c1682f88',
-      datalabels:{ color:'#8a4520', anchor:'end', align:'top', font:{size:10,weight:'600'}, formatter:v=>v>0?v:'' } }] },
+    data:{
+      labels: teams,
+      datasets:[
+        { type:'bar', label:'총오류수', data: teamSums, backgroundColor:'#c1682f88', yAxisID:'y',
+          datalabels:{ color:'#8a4520', anchor:'end', align:'top', font:{size:10,weight:'600'}, formatter:v=>v>0?v:'' } },
+        { type:'line', label:'인당 평균 오류수', data: teamAvgs, borderColor:'#2f6f76', backgroundColor:'#2f6f76', yAxisID:'y1', tension:.25, borderWidth:2,
+          datalabels:{ color:'#1c4a4f', anchor:'end', align:'bottom', offset:4, font:{size:10,weight:'600'}, formatter:v=>v.toFixed(1) } },
+      ]
+    },
     options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:18}},
-      plugins:{ legend:{display:false}, title:{display:true,text:'소속(팀)별 총오류수 합계'} },
-      scales:{ y:{ beginAtZero:true, title:{display:true,text:'건수'} } } }
+      plugins:{ legend:{position:'bottom'}, title:{display:true,text:'소속(팀)별 총오류수 · 인당 평균'} },
+      scales:{
+        y:{ position:'left', beginAtZero:true, title:{display:true,text:'총오류수'} },
+        y1:{ position:'right', beginAtZero:true, title:{display:true,text:'인당 평균'}, grid:{drawOnChartArea:false} },
+      } }
   });
 }
 
@@ -707,7 +841,8 @@ function renderTable(containerId, includePV){
 
   let html = '<table><thead><tr><th rowspan="2">월</th><th rowspan="2">발행 건수</th>';
   METRIC_KEYS.forEach(k=>{
-    html += `<th colspan="3">${METRIC_LABELS[k]}</th>`;
+    const targetNote = METRIC_TARGETS[k]!==undefined ? `<br><span style="font-weight:400; color:var(--muted); font-size:10px;">목표: ${METRIC_TARGETS[k].toFixed(2)}일 이하</span>` : '';
+    html += `<th colspan="3">${METRIC_LABELS[k]}${targetNote}</th>`;
   });
   html += '<th colspan="5">목표초과</th></tr><tr>';
   METRIC_KEYS.forEach(()=>{ html += '<th>BPR</th><th>BCR</th><th>합산</th>'; });
@@ -717,7 +852,12 @@ function renderTable(containerId, includePV){
     html += `<tr><td class="month-cell">${d.month}월</td><td>${d.issued}</td>`;
     METRIC_KEYS.forEach(k=>{
       const m = d.metrics[k];
-      html += `<td class="metric-group-bpr">${fmt(m.bpr)}</td><td class="metric-group-bcr">${fmt(m.bcr)}</td><td><b>${fmt(m.combined)}</b></td>`;
+      const target = METRIC_TARGETS[k];
+      let combinedClass = '';
+      if(target!==undefined && m.combined!==null){
+        combinedClass = (m.combined <= target) ? 'target-ok' : 'target-over';
+      }
+      html += `<td class="metric-group-bpr">${fmt(m.bpr)}</td><td class="metric-group-bcr">${fmt(m.bcr)}</td><td class="${combinedClass}"><b>${fmt(m.combined)}</b></td>`;
     });
     html += `<td class="metric-group-bpr">${d.bprOver}</td><td class="metric-group-bcr">${d.bcrOver}</td><td><b>${fmt(d.overAvg,1)}</b></td>`;
     html += `<td class="${d.overRate>3.19?'over-target':''}">${fmt(d.overRate,2)}%</td>`;
@@ -750,6 +890,15 @@ function renderChart3(includePV){
       formatter: v => (v===null || v===undefined) ? '' : v.toFixed(2),
     },
   }));
+
+  const flat = v => months.map(()=>v);
+  const noLabel = { display:false };
+  datasets.push(
+    { label:'검토소요일 목표(0.90일)', data: flat(0.90), borderColor:'#2e7d32', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false, datalabels:noLabel },
+    { label:'중간체 접수소요일 목표(1.20일)', data: flat(1.20), borderColor:'#1565c0', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false, datalabels:noLabel },
+    { label:'원료의약품 접수소요일 목표(1.04일)', data: flat(1.04), borderColor:'#c62828', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false, datalabels:noLabel },
+  );
+
   const ctx = document.getElementById('chart3').getContext('2d');
   if(chart3) chart3.destroy();
   chart3 = new Chart(ctx, {
@@ -758,7 +907,10 @@ function renderChart3(includePV){
     options:{ responsive:true, maintainAspectRatio:false,
       layout:{ padding:{ top:20, bottom:10 } },
       scales:{ y:{ title:{display:true, text:'소요일'} } },
-      plugins:{ legend:{position:'bottom'} } }
+      plugins:{
+        legend:{position:'top'},
+        title:{ display:true, text:'BPR, BCR 진행 소요일 합계 평균 월별 추이 (모니터링 기간)', font:{size:15, weight:'bold'}, padding:{bottom:14} },
+      } }
   });
 }
 
@@ -771,19 +923,24 @@ function renderChart4(includePV){
     data:{
       labels: months.map(m=>m+'월'),
       datasets:[
-        { type:'bar', label:'목표초과 건수(합산평균)', data:data.map(d=>d.overAvg), backgroundColor:'#c1682f88', yAxisID:'y',
-          datalabels:{ color:'#8a4520', anchor:'end', align:'top', font:{size:10,weight:'600'}, formatter:v=>v.toFixed(1) } },
-        { type:'line', label:'초과율(%)', data:data.map(d=>d.overRate), borderColor:'#1b2430', backgroundColor:'#1b2430', yAxisID:'y1', tension:.25,
-          datalabels:{ color:'#1b2430', anchor:'end', align:'bottom', offset:6, font:{size:10,weight:'600'}, formatter:v=>v.toFixed(2)+'%' } },
+        { type:'bar', label:'목표 소요일 초과건수', data:data.map(d=>d.overAvg), backgroundColor:'#e8c04a', yAxisID:'y',
+          datalabels:{ color:'#3a2e05', anchor:'end', align:'top', font:{size:10,weight:'600'}, formatter:v=>v.toFixed(1) } },
+        { type:'line', label:'목표 초과율(월)', data:data.map(d=>d.overRate), borderColor:'#5b9bd5', backgroundColor:'#5b9bd5', yAxisID:'y1', tension:.25, borderWidth:2.5,
+          datalabels:{ color:'#1b2430', anchor:'end', align:'bottom', offset:6, font:{size:10,weight:'600'}, formatter:v=>v.toFixed(2) } },
+        { type:'line', label:'접수목표일 초과율 목표(3.19%)', data:months.map(()=>3.19), yAxisID:'y1', borderColor:'#c62828', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false,
+          datalabels:{ display:false } },
       ]
     },
     options:{ responsive:true, maintainAspectRatio:false,
       layout:{ padding:{ top:20, bottom:16 } },
       scales:{
-        y:{ position:'left', title:{display:true, text:'건수'}, beginAtZero:true },
-        y1:{ position:'right', title:{display:true, text:'초과율(%)'}, beginAtZero:true, grid:{drawOnChartArea:false} },
+        y:{ position:'left', title:{display:true, text:'초과건수'}, beginAtZero:true },
+        y1:{ position:'right', title:{display:true, text:'목표 초과율(%)'}, beginAtZero:true, grid:{drawOnChartArea:false} },
       },
-      plugins:{ legend:{position:'bottom'} } }
+      plugins:{
+        legend:{position:'top'},
+        title:{ display:true, text:'BPR, BCR 접수목표일 초과 건수 합계 평균 월별 추이 (모니터링 기간)', font:{size:15, weight:'bold'}, padding:{bottom:14} },
+      } }
   });
 }
 
