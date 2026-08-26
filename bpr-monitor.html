@@ -94,6 +94,13 @@
 <header>
   <h1>BPR · BCR 작성상황 모니터링</h1>
   <span class="sub">원본 데이터(26년_BPR 현황 / 26년_BCR 현황)를 월별로 재집계합니다</span>
+  <div id="headerSnapshotBar" style="margin-left:auto; display:none; align-items:center; gap:8px;">
+    <span style="font-size:12px; color:#aab3bf;">저장된 데이터:</span>
+    <select id="headerSnapshotSelect" style="padding:6px 10px; border-radius:6px; border:1px solid #3a4553; background:#26303d; color:#f5f6f4; font-size:12.5px;">
+      <option value="">선택...</option>
+    </select>
+    <button id="headerSnapshotDeleteBtn" style="padding:6px 10px; border-radius:6px; border:1px solid #b3432b; background:transparent; color:#e08a75; font-size:12px; cursor:pointer;">삭제</button>
+  </div>
 </header>
 
 <div class="wrap">
@@ -123,11 +130,21 @@
         <textarea id="pasteRev" placeholder="작업자별 월별 오류 건수를 보려면 '26년_BPR, BCR 수정' 시트를 헤더 행부터 복사해 붙여넣으세요 (생략 가능)" style="width:100%; height:120px; font-size:11.5px; padding:8px; border:1px solid var(--line); border-radius:6px; font-family:monospace;"></textarea>
       </div>
       <div style="margin-top:14px;">
-        <label style="font-size:12.5px; font-weight:700; display:block; margin-bottom:6px;">④ (선택) 인원별 통계 데이터 — '26년_통계_제조팀' 시트, 연차·항목별 오류 정리용</label>
+        <label style="font-size:12.5px; font-weight:700; display:block; margin-bottom:6px;">④ (선택) 인원별 통계 데이터 — '26년_통계_제조팀' 시트, 연차·항목별 오류 정리용 (1~12월/4~9월 구분을 위해 상단 그룹 제목 행부터 포함해서 복사해주세요)</label>
         <textarea id="pasteTeam" placeholder="연차별·항목별 작업자 통계를 보려면 '26년_통계_제조팀' 시트를 헤더 행부터 복사해 붙여넣으세요 (생략 가능)" style="width:100%; height:120px; font-size:11.5px; padding:8px; border:1px solid var(--line); border-radius:6px; font-family:monospace;"></textarea>
       </div>
       <button class="btn" id="applyPasteBtn" style="margin-top:14px;">붙여넣은 데이터로 계산하기</button>
       <div id="pasteStatus" class="filename" style="margin-top:8px;"></div>
+
+      <div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--line);">
+        <label style="font-size:12.5px; font-weight:700; display:block; margin-bottom:6px;">이번 데이터 저장 (이름은 자동으로 채워지고, 필요하면 고쳐도 됩니다)</label>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+          <input id="snapshotLabel" type="text" placeholder="예: 2026년 7월" style="flex:1; min-width:160px; padding:8px; border:1px solid var(--line); border-radius:6px; font-size:12.5px;">
+          <button class="btn" id="saveSnapshotBtn" style="background:var(--ok);">저장</button>
+          <button class="btn" id="resetSnapshotBtn" style="background:#fff; color:var(--bad); border:1px solid var(--bad);">초기화</button>
+        </div>
+        <div id="snapshotSaveStatus" class="filename" style="margin-top:6px;"></div>
+      </div>
     </div>
 
     <div id="fileMode" style="display:none;">
@@ -146,8 +163,7 @@
       <div class="tab" data-tab="t3">3. BPR,BCR 진행 소요일 추이</div>
       <div class="tab" data-tab="t4">4. BPR,BCR 접수목표일 초과 건수 추이</div>
       <div class="tab" data-tab="t5">5. 작업자별 월별 오류 건수</div>
-      <div class="tab" data-tab="t7">7. 인원별 통계(연차·항목별)</div>
-      <div class="tab" data-tab="t6">6. 수식 오류 검사</div>
+      <div class="tab" data-tab="t7">6. 인원별 통계(연차·항목별)</div>
     </div>
 
     <div class="panel active" id="t1"><div class="card">
@@ -192,12 +208,6 @@
       <h2>인원별 통계 (연차 · 항목별)</h2>
       <div class="desc" id="t7desc">'인원별 통계' 데이터가 붙여넣어지지 않았습니다. 위 ④ 칸에 '26년_통계_제조팀' 시트를 붙여넣고 다시 계산해주세요.</div>
       <div id="t7body"></div>
-    </div></div>
-
-    <div class="panel" id="t6"><div class="card">
-      <h2>엑셀 수식 오류 검사</h2>
-      <div class="desc">복사/붙여넣기는 값만 옮겨지고 수식이 사라지므로, 이 검사는 상단 '파일 업로드' 탭에서 원본 엑셀 파일을 올려야 실행됩니다. 워크북 전체 시트를 스캔해 #REF!, #DIV/0! 등 오류가 있는 셀을 모읍니다.</div>
-      <div id="t6body"></div>
     </div></div>
 
     <div class="assumptions">
@@ -264,12 +274,11 @@ const METRIC_LABELS = {
 };
 const METRIC_KEYS = Object.keys(METRIC_LABELS);
 
-// 항목별 합산평균 기준값(목표). 기준 이하(=포함) → 파란색, 초과 → 빨간색.
 const METRIC_TARGETS = {
-  midReview: 0.90,   // 중간체 검토소요일
-  apiReview: 0.90,   // 원료의약품 검토소요일
-  midReceipt: 1.20,  // 중간체 접수소요일
-  apiReceipt: 1.04,  // 원료의약품 접수소요일
+  midReview: 0.90,
+  apiReview: 0.90,
+  midReceipt: 1.20,
+  apiReceipt: 1.04,
 };
 
 function buildHeaderMap(rows, headerRowIdx){
@@ -393,9 +402,6 @@ function handleWorkbook(wb){
     const revRows = extractRevisionRows(revRaw, revHeaderIdx);
     if(revRows.length){ renderWorkerErrorTable(revRows); }
   }
-
-  const errorGroups = scanFormulaErrors(wb);
-  renderFormulaErrors(errorGroups);
 }
 
 const REV_COLS = {
@@ -548,15 +554,27 @@ function computeWorkerMonthlyErrors(revRows){
   return { workers: totals.map(t=>t.worker), months, table, totals, catTotals };
 }
 
-function renderWorkerErrorTable(revRows){
-  const { workers, months, table, totals, catTotals } = computeWorkerMonthlyErrors(revRows);
+let REV_ROWS_CACHE = [];
+function renderWorkerErrorTable(revRows, period){
+  period = period || '12';
+  REV_ROWS_CACHE = revRows;
+  const filteredRows = (period==='49') ? revRows.filter(r=>r.month>=4 && r.month<=9) : revRows;
+  filteredRows.usedCategoryMethod = revRows.usedCategoryMethod;
+
+  const { workers, months, table, totals, catTotals } = computeWorkerMonthlyErrors(filteredRows);
   const usedCategoryMethod = revRows.usedCategoryMethod;
-  document.getElementById('t5desc').textContent = usedCategoryMethod
-    ? `총 ${revRows.length}건의 분류된 오류를 인식했습니다 (정식 오류유형 분류 컬럼 기준 — '26년_통계_제조팀' 시트와 동일한 방식).`
-    : `총 ${revRows.length}건의 수정 이력을 인식했습니다. ※ 오류유형 분류 컬럼(작성자(1) BPR 등, Y~CP열)이 붙여넣기 범위에 없어서, '수정 사항' 텍스트 유무로 대략 집계한 근사치입니다 — '26년_통계_제조팀' 탭 수치와 다를 수 있어요. 정확히 맞추려면 ③번 칸에 헤더 행부터 CP열까지 전체 너비로 다시 붙여넣어주세요.`;
+  document.getElementById('t5desc').textContent = (usedCategoryMethod
+    ? `총 ${filteredRows.length}건의 분류된 오류를 인식했습니다 (정식 오류유형 분류 컬럼 기준 — '26년_통계_제조팀' 시트와 동일한 방식).`
+    : `총 ${filteredRows.length}건의 수정 이력을 인식했습니다. ※ 오류유형 분류 컬럼(작성자(1) BPR 등, Y~CP열)이 붙여넣기 범위에 없어서, '수정 사항' 텍스트 유무로 대략 집계한 근사치입니다 — '26년_통계_제조팀' 탭 수치와 다를 수 있어요. 정확히 맞추려면 ③번 칸에 헤더 행부터 CP열까지 전체 너비로 다시 붙여넣어주세요.`)
+    + ` (${period==='12' ? '1~12월' : '4~9월'} 기준)`;
+
+  let html = '<div class="toggle-row" id="periodToggle5">'
+    + '<div class="toggle-btn' + (period==='12'?' active':'') + '" data-period="12">1~12월</div>'
+    + '<div class="toggle-btn' + (period==='49'?' active':'') + '" data-period="49">4~9월</div>'
+    + '</div>';
 
   const workerChartHeight = Math.max(280, workers.length * 26 + 40);
-  let html = `<div class="chart-box" style="height:${workerChartHeight}px; margin-bottom:20px;"><canvas id="chartWorker"></canvas></div>`;
+  html += `<div class="chart-box" style="height:${workerChartHeight}px; margin-bottom:20px;"><canvas id="chartWorker"></canvas></div>`;
 
   if(usedCategoryMethod){
     html += '<h3 style="font-size:13px; margin:0 0 8px;">작업자별 오류유형 분류</h3>';
@@ -590,6 +608,11 @@ function renderWorkerErrorTable(revRows){
   html += '</tbody></table></div>';
   document.getElementById('t5body').innerHTML = html;
 
+  document.getElementById('periodToggle5').addEventListener('click', e=>{
+    const btn = e.target.closest('.toggle-btn'); if(!btn) return;
+    renderWorkerErrorTable(REV_ROWS_CACHE, btn.dataset.period);
+  });
+
   const ctx = document.getElementById('chartWorker').getContext('2d');
   if(chartWorker) chartWorker.destroy();
   chartWorker = new Chart(ctx, {
@@ -610,16 +633,26 @@ let chartWorker = null;
 
 const TEAM_COLS = {
   team: ['소속',0], tenure: ['입사년차',0], name: ['성명',0],
-  totalCount: ['BPR+BCR건수',0],
-  logbook: ['로그북',0], simple: ['단순오류',0], unclear: ['불명확업무절차',0],
-  noncompliance: ['절차미준수',0], physical: ['물리적오류',0], etc: ['기타오류',0],
-  totalErr: ['총오류수',0],
-  submitDelay: ['제출평균지연일',0], reviseDelay: ['수정평균소요일',0],
+  logbook: ['로그북',0],
+  totalCount12: ['BPR+BCR건수',0],
+  totalCount49: ['BPR+BCR건수(4월~9월)',0],
+  simple12: ['단순오류',0], unclear12: ['불명확업무절차',0], noncompliance12: ['절차미준수',0], physical12: ['물리적오류',0], etc12: ['기타오류',0], totalErr12: ['총오류수',0],
+  simple49: ['단순오류',1], unclear49: ['불명확업무절차',1], noncompliance49: ['절차미준수',1], physical49: ['물리적오류',1], etc49: ['기타오류',1], totalErr49: ['총오류수',1],
+  submitDelay12: ['제출평균지연일',0], reviseDelay12: ['수정평균소요일',0],
+  submitDelay49: ['제출평균지연일',1], reviseDelay49: ['수정평균소요일',1],
 };
+function pickPeriod(r, period){
+  const suf = period;
+  return {
+    totalCount: r['totalCount'+suf], simple: r['simple'+suf], unclear: r['unclear'+suf],
+    noncompliance: r['noncompliance'+suf], physical: r['physical'+suf], etc: r['etc'+suf],
+    totalErr: r['totalErr'+suf], submitDelay: r['submitDelay'+suf], reviseDelay: r['reviseDelay'+suf],
+  };
+}
 function buildHeaderMapMulti(headerRow){
   const map = {};
   headerRow.forEach((h,i)=>{
-    const key = norm(h);
+    const key = baseLabel(h);
     if(!key) return;
     if(!map[key]) map[key] = [];
     map[key].push(i);
@@ -638,7 +671,7 @@ function extractTeamRows(rows, headerRowIdx){
   const idx = {};
   Object.keys(TEAM_COLS).forEach(k=>{
     const [label, occ] = TEAM_COLS[k];
-    const list = map[norm(label)];
+    const list = map[baseLabel(label)];
     idx[k] = (list && list[occ]!==undefined) ? list[occ] : undefined;
   });
   const out = [];
@@ -648,46 +681,59 @@ function extractTeamRows(rows, headerRowIdx){
     const name = idx.name!==undefined ? row[idx.name] : undefined;
     if(!name || String(name).trim()==='') continue;
     const num = (i)=>{ const v = idx[i]!==undefined ? row[idx[i]] : undefined; return typeof v==='number' ? v : 0; };
-    out.push({
+    const rec = {
       team: idx.team!==undefined ? String(row[idx.team]||'').trim() : '',
       tenure: (typeof row[idx.tenure]==='number') ? row[idx.tenure] : null,
       name: String(name).trim(),
-      totalCount: num('totalCount'),
-      logbook: num('logbook'), simple: num('simple'), unclear: num('unclear'),
-      noncompliance: num('noncompliance'), physical: num('physical'), etc: num('etc'),
-      totalErr: num('totalErr'),
-      submitDelay: num('submitDelay'), reviseDelay: num('reviseDelay'),
-    });
+      logbook: num('logbook'),
+    };
+    ['totalCount12','totalCount49','simple12','unclear12','noncompliance12','physical12','etc12','totalErr12',
+     'simple49','unclear49','noncompliance49','physical49','etc49','totalErr49',
+     'submitDelay12','reviseDelay12','submitDelay49','reviseDelay49'].forEach(k=>{ rec[k] = num(k); });
+    out.push(rec);
   }
   return out;
 }
 let chartTenure = null, chartTeam = null;
-function renderTeamStats(rows){
-  document.getElementById('t7desc').textContent = `총 ${rows.length}명의 인원별 통계를 인식했습니다.`;
+let TEAM_ROWS_CACHE = [];
+function renderTeamStats(rows, period){
+  period = period || '12';
+  TEAM_ROWS_CACHE = rows;
+  document.getElementById('t7desc').textContent = `총 ${rows.length}명의 인원별 통계를 인식했습니다. (${period==='12' ? '1~12월' : '4~9월'} 기준)`;
 
-  let html = '<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;">';
+  let html = '<div class="toggle-row" id="periodToggle7">'
+    + '<div class="toggle-btn' + (period==='12'?' active':'') + '" data-period="12">1~12월</div>'
+    + '<div class="toggle-btn' + (period==='49'?' active':'') + '" data-period="49">4~9월</div>'
+    + '</div>';
+  html += '<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;">';
   html += '<div class="chart-box" style="height:300px;"><canvas id="chartTenure"></canvas></div>';
   html += '<div class="chart-box" style="height:300px;"><canvas id="chartTeam"></canvas></div>';
   html += '</div>';
 
-  const sorted = [...rows].sort((a,b)=>b.totalErr-a.totalErr);
+  const sorted = [...rows].sort((a,b)=>pickPeriod(b,period).totalErr-pickPeriod(a,period).totalErr);
   html += '<div class="table-scroll"><table><thead><tr><th>소속</th><th>연차</th><th>성명</th><th>BPR+BCR건수</th>'
     + '<th>로그북</th><th>단순오류</th><th>불명확업무절차</th><th>절차미준수</th><th>물리적오류</th><th>기타오류</th><th>총오류수</th>'
     + '<th>제출평균지연일</th><th>수정평균소요일</th></tr></thead><tbody>';
   sorted.forEach(r=>{
-    html += `<tr><td>${r.team}</td><td class="month-cell">${r.tenure??'-'}</td><td>${r.name}</td><td>${r.totalCount}</td>`
-      + `<td>${r.logbook}</td><td>${r.simple}</td><td>${r.unclear}</td><td>${r.noncompliance}</td><td>${r.physical}</td><td>${r.etc}</td>`
-      + `<td class="${r.totalErr>0?'over-target':''}"><b>${r.totalErr}</b></td>`
-      + `<td>${fmt(r.submitDelay)}</td><td>${fmt(r.reviseDelay)}</td></tr>`;
+    const p = pickPeriod(r, period);
+    html += `<tr><td>${r.team}</td><td class="month-cell">${r.tenure??'-'}</td><td>${r.name}</td><td>${p.totalCount}</td>`
+      + `<td>${r.logbook}</td><td>${p.simple}</td><td>${p.unclear}</td><td>${p.noncompliance}</td><td>${p.physical}</td><td>${p.etc}</td>`
+      + `<td class="${p.totalErr>0?'over-target':''}"><b>${p.totalErr}</b></td>`
+      + `<td>${fmt(p.submitDelay)}</td><td>${fmt(p.reviseDelay)}</td></tr>`;
   });
   html += '</tbody></table></div>';
   document.getElementById('t7body').innerHTML = html;
+
+  document.getElementById('periodToggle7').addEventListener('click', e=>{
+    const btn = e.target.closest('.toggle-btn'); if(!btn) return;
+    renderTeamStats(TEAM_ROWS_CACHE, btn.dataset.period);
+  });
 
   const yearGroups = {};
   rows.forEach(r=>{
     const key = (r.tenure===null) ? '미상' : `${r.tenure}년차`;
     if(!yearGroups[key]) yearGroups[key] = { sum:0, count:0 };
-    yearGroups[key].sum += r.totalErr;
+    yearGroups[key].sum += pickPeriod(r,period).totalErr;
     yearGroups[key].count += 1;
   });
   const yearLabels = Object.keys(yearGroups).sort((a,b)=>{
@@ -719,10 +765,10 @@ function renderTeamStats(rows){
   });
 
   const teams = Array.from(new Set(rows.map(r=>r.team))).filter(Boolean);
-  const teamSums = teams.map(t=>rows.filter(r=>r.team===t).reduce((s,r)=>s+r.totalErr,0));
+  const teamSums = teams.map(t=>rows.filter(r=>r.team===t).reduce((s,r)=>s+pickPeriod(r,period).totalErr,0));
   const teamAvgs = teams.map(t=>{
     const members = rows.filter(r=>r.team===t);
-    return members.reduce((s,r)=>s+r.totalErr,0) / members.length;
+    return members.reduce((s,r)=>s+pickPeriod(r,period).totalErr,0) / members.length;
   });
 
   const ctxTm = document.getElementById('chartTeam').getContext('2d');
@@ -746,40 +792,6 @@ function renderTeamStats(rows){
   });
 }
 
-function scanFormulaErrors(wb){
-  const groups = {};
-  wb.SheetNames.forEach(sheetName=>{
-    const ws = wb.Sheets[sheetName];
-    Object.keys(ws).forEach(addr=>{
-      if(addr[0]==='!') return;
-      const cell = ws[addr];
-      if(cell && cell.t === 'e'){
-        const errType = cell.w || String(cell.v);
-        const key = sheetName + '|' + errType;
-        if(!groups[key]) groups[key] = { sheet: sheetName, error: errType, count:0, examples: [], formula: cell.f || '' };
-        groups[key].count++;
-        if(groups[key].examples.length < 5) groups[key].examples.push(addr);
-      }
-    });
-  });
-  return Object.values(groups).sort((a,b)=> b.count - a.count);
-}
-
-function renderFormulaErrors(groups){
-  const body = document.getElementById('t6body');
-  if(groups.length===0){
-    body.innerHTML = '<div class="desc" style="color:var(--ok); font-weight:700;">발견된 수식 오류가 없습니다.</div>';
-    return;
-  }
-  const totalCount = groups.reduce((s,g)=>s+g.count,0);
-  let html = `<div class="desc" style="margin-bottom:12px;">총 <b style="color:var(--bad);">${totalCount}건</b>의 오류 셀이 ${groups.length}개 그룹으로 발견되었습니다.</div>`;
-  html += '<div class="table-scroll"><table><thead><tr><th>시트</th><th>오류 유형</th><th>건수</th><th>예시 셀</th><th>수식(예시)</th></tr></thead><tbody>';
-  groups.forEach(g=>{
-    html += `<tr><td>${g.sheet}</td><td class="over-target">${g.error}</td><td>${g.count}</td><td style="white-space:normal; text-align:left;">${g.examples.join(', ')}</td><td style="white-space:normal; text-align:left; max-width:340px; font-family:monospace; font-size:10.5px;">${(g.formula||'').replace(/</g,'&lt;')}</td></tr>`;
-  });
-  html += '</tbody></table></div>';
-  body.innerHTML = html;
-}
 function coerceCell(raw){
   if(raw===undefined || raw===null) return undefined;
   const t = String(raw).trim();
@@ -855,7 +867,8 @@ function renderTable(containerId, includePV){
       const target = METRIC_TARGETS[k];
       let combinedClass = '';
       if(target!==undefined && m.combined!==null){
-        combinedClass = (m.combined <= target) ? 'target-ok' : 'target-over';
+        const roundedCombined = Math.round(m.combined*100)/100;
+        combinedClass = (roundedCombined <= target) ? 'target-ok' : 'target-over';
       }
       html += `<td class="metric-group-bpr">${fmt(m.bpr)}</td><td class="metric-group-bcr">${fmt(m.bcr)}</td><td class="${combinedClass}"><b>${fmt(m.combined)}</b></td>`;
     });
@@ -892,11 +905,24 @@ function renderChart3(includePV){
   }));
 
   const flat = v => months.map(()=>v);
-  const noLabel = { display:false };
+  const labelIdx = Math.max(0, months.length - 3);
+  function thresholdDataset(text, value, color){
+    return {
+      label: text, data: flat(value), borderColor: color,
+      borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false,
+      hideFromLegend: true,
+      datalabels: {
+        display: (ctx)=> ctx.dataIndex === labelIdx,
+        align:'top', anchor:'end', offset:6,
+        color: color, font:{ size:10, weight:'700' },
+        formatter: ()=> text,
+      },
+    };
+  }
   datasets.push(
-    { label:'검토소요일 목표(0.90일)', data: flat(0.90), borderColor:'#2e7d32', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false, datalabels:noLabel },
-    { label:'중간체 접수소요일 목표(1.20일)', data: flat(1.20), borderColor:'#1565c0', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false, datalabels:noLabel },
-    { label:'원료의약품 접수소요일 목표(1.04일)', data: flat(1.04), borderColor:'#c62828', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false, datalabels:noLabel },
+    thresholdDataset('BPR,BCR 검토소요일 목표: 0.90일', 0.90, '#2e7d32'),
+    thresholdDataset('중간체 BPR,BCR 접수지연일 목표: 1.20일', 1.20, '#1565c0'),
+    thresholdDataset('API BPR,BCR 접수지연일 목표: 1.04일', 1.04, '#c62828'),
   );
 
   const ctx = document.getElementById('chart3').getContext('2d');
@@ -908,7 +934,7 @@ function renderChart3(includePV){
       layout:{ padding:{ top:20, bottom:10 } },
       scales:{ y:{ title:{display:true, text:'소요일'} } },
       plugins:{
-        legend:{position:'top'},
+        legend:{position:'top', labels:{ filter: (item, chartData)=> !chartData.datasets[item.datasetIndex].hideFromLegend } },
         title:{ display:true, text:'BPR, BCR 진행 소요일 합계 평균 월별 추이 (모니터링 기간)', font:{size:15, weight:'bold'}, padding:{bottom:14} },
       } }
   });
@@ -919,6 +945,7 @@ function renderChart4(includePV){
   const data = months.map(m=>aggregateMonth(STATE.bprRows, STATE.bcrRows, m, includePV));
   const ctx = document.getElementById('chart4').getContext('2d');
   if(chart4) chart4.destroy();
+  const thresholdLabelIdx = Math.max(0, months.length - 3);
   chart4 = new Chart(ctx, {
     data:{
       labels: months.map(m=>m+'월'),
@@ -927,8 +954,10 @@ function renderChart4(includePV){
           datalabels:{ color:'#3a2e05', anchor:'end', align:'top', font:{size:10,weight:'600'}, formatter:v=>v.toFixed(1) } },
         { type:'line', label:'목표 초과율(월)', data:data.map(d=>d.overRate), borderColor:'#5b9bd5', backgroundColor:'#5b9bd5', yAxisID:'y1', tension:.25, borderWidth:2.5,
           datalabels:{ color:'#1b2430', anchor:'end', align:'bottom', offset:6, font:{size:10,weight:'600'}, formatter:v=>v.toFixed(2) } },
-        { type:'line', label:'접수목표일 초과율 목표(3.19%)', data:months.map(()=>3.19), yAxisID:'y1', borderColor:'#c62828', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false,
-          datalabels:{ display:false } },
+        { type:'line', label:'접수목표일 초과율 목표: 3.19%', data:months.map(()=>3.19), yAxisID:'y1', borderColor:'#c62828', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false,
+          hideFromLegend:true,
+          datalabels:{ display: (ctx)=> ctx.dataIndex===thresholdLabelIdx, align:'top', anchor:'end', offset:6,
+            color:'#c62828', font:{size:10,weight:'700'}, formatter:()=>'접수목표일 초과율 목표: 3.19%' } },
       ]
     },
     options:{ responsive:true, maintainAspectRatio:false,
@@ -938,7 +967,7 @@ function renderChart4(includePV){
         y1:{ position:'right', title:{display:true, text:'목표 초과율(%)'}, beginAtZero:true, grid:{drawOnChartArea:false} },
       },
       plugins:{
-        legend:{position:'top'},
+        legend:{position:'top', labels:{ filter: (item, chartData)=> !chartData.datasets[item.datasetIndex].hideFromLegend } },
         title:{ display:true, text:'BPR, BCR 접수목표일 초과 건수 합계 평균 월별 추이 (모니터링 기간)', font:{size:15, weight:'bold'}, padding:{bottom:14} },
       } }
   });
@@ -964,6 +993,126 @@ function loadFile(file){
 document.getElementById('fileInput').addEventListener('change', e=>{
   if(e.target.files[0]) loadFile(e.target.files[0]);
 });
+
+const SNAPSHOT_PREFIX = 'bprMonitorSnapshot:';
+
+function listSnapshotKeys(){
+  const keys = [];
+  for(let i=0; i<localStorage.length; i++){
+    const k = localStorage.key(i);
+    if(k && k.startsWith(SNAPSHOT_PREFIX)) keys.push(k);
+  }
+  return keys;
+}
+
+function saveSnapshot(label){
+  const payload = {
+    label,
+    savedAt: new Date().toISOString(),
+    bpr: document.getElementById('pasteBPR').value,
+    bcr: document.getElementById('pasteBCR').value,
+    rev: document.getElementById('pasteRev').value,
+    team: document.getElementById('pasteTeam').value,
+  };
+  try{
+    localStorage.setItem(SNAPSHOT_PREFIX + label, JSON.stringify(payload));
+    return true;
+  }catch(err){
+    return false;
+  }
+}
+
+function loadSnapshot(label){
+  const raw = localStorage.getItem(SNAPSHOT_PREFIX + label);
+  if(!raw) return null;
+  try{ return JSON.parse(raw); }catch(err){ return null; }
+}
+
+function deleteSnapshot(label){
+  localStorage.removeItem(SNAPSHOT_PREFIX + label);
+}
+
+function renderSnapshotList(){
+  const keys = listSnapshotKeys();
+  const bar = document.getElementById('headerSnapshotBar');
+  const select = document.getElementById('headerSnapshotSelect');
+  if(keys.length === 0){
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'flex';
+  const items = keys.map(k=>{
+    try{ return JSON.parse(localStorage.getItem(k)); }catch(err){ return null; }
+  }).filter(Boolean).sort((a,b)=> new Date(b.savedAt) - new Date(a.savedAt));
+
+  select.innerHTML = '<option value="">선택...</option>'
+    + items.map(it=>`<option value="${it.label.replace(/"/g,'&quot;')}">${it.label}</option>`).join('');
+}
+
+function suggestSnapshotLabel(){
+  const months = STATE.monthsPresent;
+  const now = new Date();
+  const stamp = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  if(months.length){
+    return `${months[0]}~${months[months.length-1]}월 (${stamp} 저장)`;
+  }
+  return `저장 ${stamp}`;
+}
+
+document.getElementById('saveSnapshotBtn').addEventListener('click', ()=>{
+  let label = document.getElementById('snapshotLabel').value.trim();
+  const statusEl = document.getElementById('snapshotSaveStatus');
+  const bprText = document.getElementById('pasteBPR').value;
+  const bcrText = document.getElementById('pasteBCR').value;
+  if(!bprText.trim() || !bcrText.trim()){
+    statusEl.textContent = 'BPR, BCR 데이터를 먼저 붙여넣어 주세요.';
+    return;
+  }
+  if(!label) label = suggestSnapshotLabel();
+  const ok = saveSnapshot(label);
+  statusEl.textContent = ok ? `'${label}'로 저장했습니다.` : '저장 실패 (브라우저 저장공간이 가득 찼을 수 있어요).';
+  if(ok){
+    document.getElementById('snapshotLabel').value = '';
+    renderSnapshotList();
+  }
+});
+
+document.getElementById('resetSnapshotBtn').addEventListener('click', ()=>{
+  if(!confirm('현재 화면과 붙여넣은 데이터를 모두 지울까요? (저장된 데이터는 그대로 남아있어요)')) return;
+  document.getElementById('pasteBPR').value = '';
+  document.getElementById('pasteBCR').value = '';
+  document.getElementById('pasteRev').value = '';
+  document.getElementById('pasteTeam').value = '';
+  document.getElementById('pasteStatus').textContent = '';
+  document.getElementById('snapshotSaveStatus').textContent = '';
+  document.getElementById('content').style.display = 'none';
+  document.getElementById('emptyMsg').style.display = 'none';
+  STATE = { bprRows: [], bcrRows: [], monthsPresent: [] };
+});
+
+document.getElementById('headerSnapshotSelect').addEventListener('change', (e)=>{
+  const label = e.target.value;
+  if(!label) return;
+  const snap = loadSnapshot(label);
+  if(!snap) return;
+  document.getElementById('pasteBPR').value = snap.bpr || '';
+  document.getElementById('pasteBCR').value = snap.bcr || '';
+  document.getElementById('pasteRev').value = snap.rev || '';
+  document.getElementById('pasteTeam').value = snap.team || '';
+  document.getElementById('applyPasteBtn').click();
+  document.getElementById('pasteStatus').textContent = `'${snap.label}' 불러왔습니다.`;
+});
+
+document.getElementById('headerSnapshotDeleteBtn').addEventListener('click', ()=>{
+  const select = document.getElementById('headerSnapshotSelect');
+  const label = select.value;
+  if(!label){ alert('삭제할 저장 데이터를 먼저 선택해주세요.'); return; }
+  if(!confirm(`'${label}' 저장 데이터를 삭제할까요?`)) return;
+  deleteSnapshot(label);
+  renderSnapshotList();
+});
+
+renderSnapshotList();
 
 document.getElementById('applyPasteBtn').addEventListener('click', ()=>{
   const bprText = document.getElementById('pasteBPR').value;
