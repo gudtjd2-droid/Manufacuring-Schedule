@@ -6,6 +6,7 @@
 <title>BPR·BCR 작성상황 모니터링</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
 <style>
   :root{
     --ink:#1b2430;
@@ -165,8 +166,8 @@
         <div class="toggle-btn active" data-pv="0">PV 제외</div>
         <div class="toggle-btn" data-pv="1">PV 포함</div>
       </div>
-      <div class="chart-box"><canvas id="chart3"></canvas></div>
-      <div class="legend-note">작업자제출지연일 / 총 검토소요일 / 수정소요일 / 제출~접수소요일(문서결재준비완료일) — BPR·BCR 합산평균 기준</div>
+      <div class="chart-box" style="height:440px;"><canvas id="chart3"></canvas></div>
+      <div class="legend-note">작업자제출지연일 / 수정소요일 / 중간체 검토소요일 / 원료의약품 검토소요일 / 중간체 접수소요일 / 원료의약품 접수소요일 — BPR·BCR 합산평균 기준, 그래프 위 숫자는 해당 월 값</div>
     </div></div>
 
     <div class="panel" id="t4"><div class="card">
@@ -207,6 +208,8 @@
 </div>
 
 <script>
+if(window.Chart && window.ChartDataLabels){ Chart.register(ChartDataLabels); }
+
 const norm = s => (s===undefined||s===null) ? '' : String(s).replace(/\s+/g,'').trim();
 const LETTER_TO_MONTH = {A:1,B:2,C:3,D:4,E:5,F:6,G:7,H:8,I:9,J:10,K:11,L:12};
 
@@ -387,16 +390,27 @@ function handleWorkbook(wb){
 
 const REV_COLS = {
   month: '월',
-  worker: '작성자(1)',
+  worker1: '작성자(1)',
+  confirmer1: '확인자(1)',
+  worker2: '작성자(2)',
+  confirmer2: '확인자(2)',
   bprNote: '수정사항및처리',
   bcrNote: '수정사항및처리2',
 };
+const REV_ROLE_KEYS = ['worker1','confirmer1','worker2','confirmer2'];
 
 function isRealNote(v){
   if(v===undefined || v===null) return false;
   let t = String(v).trim();
   t = t.replace(/^<[^>]*>\s*/, '').trim();
   if(t==='' || t==='ㅡ' || t==='-' || t==='.') return false;
+  return true;
+}
+
+function isValidWorkerName(name){
+  if(!name || name==='-') return false;
+  if(name.startsWith('#')) return false;
+  if(/^\d{1,2}:\d{2}(:\d{2})?$/.test(name)) return false;
   return true;
 }
 
@@ -410,11 +424,19 @@ function extractRevisionRows(rows, headerRowIdx){
     if(!row || row.length===0) continue;
     const monthLetter = row[idx.month];
     if(!monthLetter || !LETTER_TO_MONTH[String(monthLetter).trim()]) continue;
-    const worker = idx.worker!==undefined ? row[idx.worker] : undefined;
-    if(!worker || String(worker).trim()==='' || String(worker).trim()==='-') continue;
+    const month = LETTER_TO_MONTH[String(monthLetter).trim()];
     const bprHas = isRealNote(idx.bprNote!==undefined ? row[idx.bprNote] : undefined);
     const bcrHas = isRealNote(idx.bcrNote!==undefined ? row[idx.bcrNote] : undefined);
-    out.push({ month: LETTER_TO_MONTH[String(monthLetter).trim()], worker: String(worker).trim(), bprHas, bcrHas });
+    const namesInRow = new Set();
+    REV_ROLE_KEYS.forEach(roleKey=>{
+      const colIdx = idx[roleKey];
+      const v = colIdx!==undefined ? row[colIdx] : undefined;
+      const name = (v!==undefined && v!==null) ? String(v).trim() : '';
+      if(isValidWorkerName(name)) namesInRow.add(name);
+    });
+    namesInRow.forEach(worker=>{
+      out.push({ month, worker, bprHas, bcrHas });
+    });
   }
   return out;
 }
@@ -465,8 +487,10 @@ function renderWorkerErrorTable(revRows){
   if(chartWorker) chartWorker.destroy();
   chartWorker = new Chart(ctx, {
     type:'bar',
-    data:{ labels: workers, datasets:[{ label:'총 오류 건수', data: workers.map(w=>totals.find(t=>t.worker===w).total), backgroundColor:'#c1682f88' }] },
+    data:{ labels: workers, datasets:[{ label:'총 오류 건수', data: workers.map(w=>totals.find(t=>t.worker===w).total), backgroundColor:'#c1682f88',
+      datalabels:{ color:'#8a4520', anchor:'end', align:'end', font:{size:10,weight:'600'}, formatter:v=>v>0?v:'' } }] },
     options:{ responsive:true, maintainAspectRatio:false, indexAxis:'y',
+      layout:{ padding:{ right:24 } },
       scales:{ x:{ title:{display:true, text:'건수'}, beginAtZero:true } },
       plugins:{ legend:{display:false} } }
   });
@@ -566,8 +590,10 @@ function renderTeamStats(rows){
   if(chartTenure) chartTenure.destroy();
   chartTenure = new Chart(ctxT, {
     type:'bar',
-    data:{ labels: bucketsUsed, datasets:[{ label:'연차별 총오류수', data: bucketsUsed.map(b=>bucketSums[b]), backgroundColor:'#2f6f7688' }] },
-    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, title:{display:true,text:'입사연차별 총오류수 합계'} },
+    data:{ labels: bucketsUsed, datasets:[{ label:'연차별 총오류수', data: bucketsUsed.map(b=>bucketSums[b]), backgroundColor:'#2f6f7688',
+      datalabels:{ color:'#1c4a4f', anchor:'end', align:'top', font:{size:10,weight:'600'}, formatter:v=>v>0?v:'' } }] },
+    options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:18}},
+      plugins:{ legend:{display:false}, title:{display:true,text:'입사연차별 총오류수 합계'} },
       scales:{ y:{ beginAtZero:true, title:{display:true,text:'건수'} } } }
   });
 
@@ -578,8 +604,10 @@ function renderTeamStats(rows){
   if(chartTeam) chartTeam.destroy();
   chartTeam = new Chart(ctxTm, {
     type:'bar',
-    data:{ labels: teams, datasets:[{ label:'소속별 총오류수', data: teamSums, backgroundColor:'#c1682f88' }] },
-    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, title:{display:true,text:'소속(팀)별 총오류수 합계'} },
+    data:{ labels: teams, datasets:[{ label:'소속별 총오류수', data: teamSums, backgroundColor:'#c1682f88',
+      datalabels:{ color:'#8a4520', anchor:'end', align:'top', font:{size:10,weight:'600'}, formatter:v=>v>0?v:'' } }] },
+    options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:18}},
+      plugins:{ legend:{display:false}, title:{display:true,text:'소속(팀)별 총오류수 합계'} },
       scales:{ y:{ beginAtZero:true, title:{display:true,text:'건수'} } } }
   });
 }
@@ -700,8 +728,8 @@ function renderTable(containerId, includePV){
 }
 
 let chart3 = null, chart4 = null;
-const CHART_METRIC_KEYS = ['workerDelay','reviewTotal','revise','docPrepDelay'];
-const CHART_COLORS = ['#2f6f76','#c1682f','#3d4b63','#8a3b5e'];
+const CHART_METRIC_KEYS = ['workerDelay','revise','midReview','apiReview','midReceipt','apiReceipt'];
+const CHART_COLORS = ['#2f6f76','#6b4a2f','#29b6c9','#1b3a8a','#e0a25c','#c1372f'];
 
 function renderChart3(includePV){
   const months = STATE.monthsPresent;
@@ -713,6 +741,14 @@ function renderChart3(includePV){
     backgroundColor: CHART_COLORS[i],
     tension: .25,
     spanGaps: true,
+    datalabels: {
+      color: CHART_COLORS[i],
+      align: (i % 2 === 0) ? 'top' : 'bottom',
+      anchor: (i % 2 === 0) ? 'end' : 'start',
+      offset: 4 + (i % 3) * 4,
+      font: { size: 9, weight: '600' },
+      formatter: v => (v===null || v===undefined) ? '' : v.toFixed(2),
+    },
   }));
   const ctx = document.getElementById('chart3').getContext('2d');
   if(chart3) chart3.destroy();
@@ -720,6 +756,7 @@ function renderChart3(includePV){
     type:'line',
     data:{ labels: months.map(m=>m+'월'), datasets },
     options:{ responsive:true, maintainAspectRatio:false,
+      layout:{ padding:{ top:20, bottom:10 } },
       scales:{ y:{ title:{display:true, text:'소요일'} } },
       plugins:{ legend:{position:'bottom'} } }
   });
@@ -734,11 +771,14 @@ function renderChart4(includePV){
     data:{
       labels: months.map(m=>m+'월'),
       datasets:[
-        { type:'bar', label:'목표초과 건수(합산평균)', data:data.map(d=>d.overAvg), backgroundColor:'#c1682f88', yAxisID:'y' },
-        { type:'line', label:'초과율(%)', data:data.map(d=>d.overRate), borderColor:'#1b2430', backgroundColor:'#1b2430', yAxisID:'y1', tension:.25 },
+        { type:'bar', label:'목표초과 건수(합산평균)', data:data.map(d=>d.overAvg), backgroundColor:'#c1682f88', yAxisID:'y',
+          datalabels:{ color:'#8a4520', anchor:'end', align:'top', font:{size:10,weight:'600'}, formatter:v=>v.toFixed(1) } },
+        { type:'line', label:'초과율(%)', data:data.map(d=>d.overRate), borderColor:'#1b2430', backgroundColor:'#1b2430', yAxisID:'y1', tension:.25,
+          datalabels:{ color:'#1b2430', anchor:'end', align:'bottom', offset:6, font:{size:10,weight:'600'}, formatter:v=>v.toFixed(2)+'%' } },
       ]
     },
     options:{ responsive:true, maintainAspectRatio:false,
+      layout:{ padding:{ top:20, bottom:16 } },
       scales:{
         y:{ position:'left', title:{display:true, text:'건수'}, beginAtZero:true },
         y1:{ position:'right', title:{display:true, text:'초과율(%)'}, beginAtZero:true, grid:{drawOnChartArea:false} },
