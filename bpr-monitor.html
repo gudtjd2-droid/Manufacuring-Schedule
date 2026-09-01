@@ -237,7 +237,44 @@
 </div>
 
 <script>
-if(window.Chart && window.ChartDataLabels){ Chart.register(ChartDataLabels); }
+// 라벨이 점에서 멀리 떨어져 있어도(대각선 오프셋), 점과 숫자를 얇은 선으로 이어주는 콜아웃 플러그인.
+const leaderLinePlugin = {
+  id: 'leaderLines',
+  afterDatasetsDraw(chart){
+    const dirMap = {
+      top:[0,-1], bottom:[0,1],
+      topLeft:[-0.72,-0.72], topRight:[0.72,-0.72],
+      bottomLeft:[-0.72,0.72], bottomRight:[0.72,0.72],
+      left:[-1,0], right:[1,0],
+    };
+    const ctx = chart.ctx;
+    chart.data.datasets.forEach((ds, dsIndex)=>{
+      if(!ds.leaderLine) return;
+      const meta = chart.getDatasetMeta(dsIndex);
+      if(!meta || meta.hidden) return;
+      const [dx,dy] = dirMap[ds.leaderLine.align] || [0,-1];
+      const offset = ds.leaderLine.offset || 0;
+      if(offset < 14) return;
+      meta.data.forEach((point, i)=>{
+        const v = ds.data[i];
+        if(v===null || v===undefined) return;
+        const x1 = point.x, y1 = point.y;
+        const x2 = x1 + dx*offset, y2 = y1 + dy*offset;
+        ctx.save();
+        ctx.strokeStyle = ds.borderColor || ds.backgroundColor || '#888';
+        ctx.globalAlpha = 0.45;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2,2]);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+        ctx.restore();
+      });
+    });
+  }
+};
+if(window.Chart && window.ChartDataLabels){ Chart.register(leaderLinePlugin, ChartDataLabels); }
 
 const norm = s => (s===undefined||s===null) ? '' : String(s).replace(/\s+/g,'').trim();
 const LETTER_TO_MONTH = {A:1,B:2,C:3,D:4,E:5,F:6,G:7,H:8,I:9,J:10,K:11,L:12};
@@ -945,6 +982,7 @@ function renderChart3(includePV){
       backgroundColor: CHART_COLORS[i],
       tension: .25,
       spanGaps: true,
+      leaderLine: { align: pos.align, offset: pos.offset },
       datalabels: {
         display: 'auto',
         color: CHART_COLORS[i],
@@ -1003,6 +1041,7 @@ function renderChart4(includePV){
           datalabels:{ display:'auto', color:'#a8790f', anchor:'end', align:'top', font:{size:12,weight:'700'},
             backgroundColor:'rgba(255,255,255,0.88)', borderRadius:3, padding:{top:1,bottom:1,left:3,right:3}, formatter:v=>v.toFixed(1) } },
         { type:'line', label:'목표 초과율(월)', data:data.map(d=>d.overRate), borderColor:'#5b9bd5', backgroundColor:'#5b9bd5', yAxisID:'y1', tension:.25, borderWidth:2.5,
+          leaderLine: { align:'bottom', offset:22 },
           datalabels:{ display:'auto', color:'#1565c0', anchor:'end', align:'bottom', offset:22, font:{size:12,weight:'700'},
             backgroundColor:'rgba(255,255,255,0.88)', borderRadius:3, padding:{top:1,bottom:1,left:3,right:3}, formatter:v=>v.toFixed(2) } },
         { type:'line', label:'접수목표일 초과율 목표: 3.19%', data:months.map(()=>3.19), yAxisID:'y1', borderColor:'#c62828', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false,
