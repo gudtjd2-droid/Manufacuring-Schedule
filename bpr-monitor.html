@@ -816,7 +816,7 @@ function renderTeamStats(rows, period){
   chartTeamAvg = new Chart(document.getElementById('chartTeamAvg').getContext('2d'), {
     type:'bar',
     data:{ labels: teams, datasets:[{ label:'인당 평균 오류수', data: teamAvgs, backgroundColor:'#2f6f7688',
-      datalabels: labelDL('#1c4a4f', v=>v.toFixed(1):'') }] },
+      datalabels: labelDL('#1c4a4f', v=>v>0?v.toFixed(1):'') }] },
     options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:18}},
       plugins:{ legend:{display:false}, title:{display:true,text:'소속(팀)별 인당 평균 오류수'} },
       scales:{ y:{ beginAtZero:true, title:{display:true,text:'인당 평균'} } } }
