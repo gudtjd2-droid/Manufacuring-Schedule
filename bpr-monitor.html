@@ -33,7 +33,7 @@
   }
   header h1{font-size:18px; margin:0; font-weight:700; letter-spacing:.2px;}
   header .sub{color:#aab3bf; font-size:12.5px;}
-  .wrap{max-width:1180px; margin:0 auto; padding:22px 20px 60px;}
+  .wrap{max-width:none; width:97%; margin:0 auto; padding:22px 0 60px;}
 
   .upload-box{
     background:var(--card); border:1px solid var(--line); border-radius:10px;
@@ -636,7 +636,8 @@ function renderWorkerErrorTable(revRows, period){
     type:'bar',
     data:{ labels: workers, datasets:[{ label:'총 오류 건수', data: workers.map(w=>totals.find(t=>t.worker===w).total), backgroundColor:'#c1682f88',
       barPercentage:0.7, categoryPercentage:0.8,
-      datalabels:{ color:'#8a4520', anchor:'end', align:'end', font:{size:11,weight:'600'}, formatter:v=>v>0?v:'' } }] },
+      datalabels:{ display:'auto', color:'#8a4520', anchor:'end', align:'end', font:{size:11,weight:'600'},
+        backgroundColor:'rgba(255,255,255,0.88)', borderRadius:3, padding:{top:1,bottom:1,left:3,right:3}, formatter:v=>v>0?v:'' } }] },
     options:{ responsive:true, maintainAspectRatio:false, indexAxis:'y',
       layout:{ padding:{ right:28 } },
       scales:{
@@ -711,7 +712,7 @@ function extractTeamRows(rows, headerRowIdx){
   }
   return out;
 }
-let chartTenure = null, chartTeam = null;
+let chartTenureCount = null, chartTenureAvg = null, chartTeamCount = null, chartTeamAvg = null;
 let TEAM_ROWS_CACHE = [];
 function renderTeamStats(rows, period){
   period = period || '12';
@@ -729,8 +730,10 @@ function renderTeamStats(rows, period){
     + '<div class="toggle-btn' + (period==='49'?' active':'') + '" data-period="49">4~9월</div>'
     + '</div>';
   html += '<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;">';
-  html += '<div class="chart-box" style="height:300px;"><canvas id="chartTenure"></canvas></div>';
-  html += '<div class="chart-box" style="height:300px;"><canvas id="chartTeam"></canvas></div>';
+  html += '<div class="chart-box" style="height:300px;"><canvas id="chartTenureCount"></canvas></div>';
+  html += '<div class="chart-box" style="height:300px;"><canvas id="chartTenureAvg"></canvas></div>';
+  html += '<div class="chart-box" style="height:300px;"><canvas id="chartTeamCount"></canvas></div>';
+  html += '<div class="chart-box" style="height:300px;"><canvas id="chartTeamAvg"></canvas></div>';
   html += '</div>';
 
   const sorted = [...rows].sort((a,b)=>pickPeriod(b,period).totalErr-pickPeriod(a,period).totalErr);
@@ -752,6 +755,11 @@ function renderTeamStats(rows, period){
     renderTeamStats(TEAM_ROWS_CACHE, btn.dataset.period);
   });
 
+  const labelDL = (color, formatter) => ({
+    display:'auto', color, anchor:'end', align:'top', font:{size:11,weight:'600'},
+    backgroundColor:'rgba(255,255,255,0.88)', borderRadius:3, padding:{top:1,bottom:1,left:3,right:3}, formatter,
+  });
+
   const yearGroups = {};
   rows.forEach(r=>{
     const key = (r.tenure===null) ? '미상' : `${r.tenure}년차`;
@@ -767,24 +775,24 @@ function renderTeamStats(rows, period){
   const yearSums = yearLabels.map(k=>yearGroups[k].sum);
   const yearAvgs = yearLabels.map(k=>yearGroups[k].sum / yearGroups[k].count);
 
-  const ctxT = document.getElementById('chartTenure').getContext('2d');
-  if(chartTenure) chartTenure.destroy();
-  chartTenure = new Chart(ctxT, {
-    data:{
-      labels: yearLabels,
-      datasets:[
-        { type:'bar', label:'총오류수', data: yearSums, backgroundColor:'#2f6f7688', yAxisID:'y',
-          datalabels:{ display:'auto', color:'#1c4a4f', anchor:'end', align:'top', font:{size:11,weight:'600'}, formatter:v=>v>0?v:'' } },
-        { type:'line', label:'인당 평균 오류수', data: yearAvgs, borderColor:'#c1682f', backgroundColor:'#c1682f', yAxisID:'y1', tension:.25, borderWidth:2,
-          datalabels:{ display:'auto', color:'#8a4520', anchor:'end', align:'bottom', offset:8, font:{size:11,weight:'600'}, formatter:v=>v.toFixed(1) } },
-      ]
-    },
+  if(chartTenureCount) chartTenureCount.destroy();
+  chartTenureCount = new Chart(document.getElementById('chartTenureCount').getContext('2d'), {
+    type:'bar',
+    data:{ labels: yearLabels, datasets:[{ label:'총오류수', data: yearSums, backgroundColor:'#2f6f7688',
+      datalabels: labelDL('#1c4a4f', v=>v>0?v:'') }] },
     options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:18}},
-      plugins:{ legend:{position:'bottom'}, title:{display:true,text:'입사연차별 총오류수 · 인당 평균'} },
-      scales:{
-        y:{ position:'left', beginAtZero:true, title:{display:true,text:'총오류수'} },
-        y1:{ position:'right', beginAtZero:true, title:{display:true,text:'인당 평균'}, grid:{drawOnChartArea:false} },
-      } }
+      plugins:{ legend:{display:false}, title:{display:true,text:'입사연차별 총오류수'} },
+      scales:{ y:{ beginAtZero:true, title:{display:true,text:'총오류수'} } } }
+  });
+
+  if(chartTenureAvg) chartTenureAvg.destroy();
+  chartTenureAvg = new Chart(document.getElementById('chartTenureAvg').getContext('2d'), {
+    type:'bar',
+    data:{ labels: yearLabels, datasets:[{ label:'인당 평균 오류수', data: yearAvgs, backgroundColor:'#c1682f88',
+      datalabels: labelDL('#8a4520', v=>v>0?v.toFixed(1):'') }] },
+    options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:18}},
+      plugins:{ legend:{display:false}, title:{display:true,text:'입사연차별 인당 평균 오류수'} },
+      scales:{ y:{ beginAtZero:true, title:{display:true,text:'인당 평균'} } } }
   });
 
   const teams = Array.from(new Set(rows.map(r=>r.team))).filter(Boolean);
@@ -794,24 +802,24 @@ function renderTeamStats(rows, period){
     return members.reduce((s,r)=>s+pickPeriod(r,period).totalErr,0) / members.length;
   });
 
-  const ctxTm = document.getElementById('chartTeam').getContext('2d');
-  if(chartTeam) chartTeam.destroy();
-  chartTeam = new Chart(ctxTm, {
-    data:{
-      labels: teams,
-      datasets:[
-        { type:'bar', label:'총오류수', data: teamSums, backgroundColor:'#c1682f88', yAxisID:'y',
-          datalabels:{ display:'auto', color:'#8a4520', anchor:'end', align:'top', font:{size:11,weight:'600'}, formatter:v=>v>0?v:'' } },
-        { type:'line', label:'인당 평균 오류수', data: teamAvgs, borderColor:'#2f6f76', backgroundColor:'#2f6f76', yAxisID:'y1', tension:.25, borderWidth:2,
-          datalabels:{ display:'auto', color:'#1c4a4f', anchor:'end', align:'bottom', offset:8, font:{size:11,weight:'600'}, formatter:v=>v.toFixed(1) } },
-      ]
-    },
+  if(chartTeamCount) chartTeamCount.destroy();
+  chartTeamCount = new Chart(document.getElementById('chartTeamCount').getContext('2d'), {
+    type:'bar',
+    data:{ labels: teams, datasets:[{ label:'총오류수', data: teamSums, backgroundColor:'#c1682f88',
+      datalabels: labelDL('#8a4520', v=>v>0?v:'') }] },
     options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:18}},
-      plugins:{ legend:{position:'bottom'}, title:{display:true,text:'소속(팀)별 총오류수 · 인당 평균'} },
-      scales:{
-        y:{ position:'left', beginAtZero:true, title:{display:true,text:'총오류수'} },
-        y1:{ position:'right', beginAtZero:true, title:{display:true,text:'인당 평균'}, grid:{drawOnChartArea:false} },
-      } }
+      plugins:{ legend:{display:false}, title:{display:true,text:'소속(팀)별 총오류수'} },
+      scales:{ y:{ beginAtZero:true, title:{display:true,text:'총오류수'} } } }
+  });
+
+  if(chartTeamAvg) chartTeamAvg.destroy();
+  chartTeamAvg = new Chart(document.getElementById('chartTeamAvg').getContext('2d'), {
+    type:'bar',
+    data:{ labels: teams, datasets:[{ label:'인당 평균 오류수', data: teamAvgs, backgroundColor:'#2f6f7688',
+      datalabels: labelDL('#1c4a4f', v=>v>0?v.toFixed(1):'') }] },
+    options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:18}},
+      plugins:{ legend:{display:false}, title:{display:true,text:'소속(팀)별 인당 평균 오류수'} },
+      scales:{ y:{ beginAtZero:true, title:{display:true,text:'인당 평균'} } } }
   });
 }
 
@@ -921,12 +929,12 @@ function renderChart3(includePV){
   const months = STATE.monthsPresent;
   const data = months.map(m=>aggregateMonth(STATE.bprRows, STATE.bcrRows, m, includePV));
   const LABEL_POS = {
-    workerDelay: { align:'top', anchor:'end', offset:3 },
-    revise:      { align:'top', anchor:'end', offset:13 },
-    midReview:   { align:'topLeft', anchor:'end', offset:6 },
-    apiReview:   { align:'bottomLeft', anchor:'end', offset:6 },
-    midReceipt:  { align:'topRight', anchor:'end', offset:6 },
-    apiReceipt:  { align:'bottomRight', anchor:'end', offset:6 },
+    workerDelay: { align:'top', anchor:'end', offset:6 },
+    revise:      { align:'top', anchor:'end', offset:20 },
+    midReview:   { align:'topLeft', anchor:'end', offset:12 },
+    apiReview:   { align:'bottomLeft', anchor:'end', offset:12 },
+    midReceipt:  { align:'topRight', anchor:'end', offset:12 },
+    apiReceipt:  { align:'bottomRight', anchor:'end', offset:12 },
   };
   const datasets = CHART_METRIC_KEYS.map((k,i)=>{
     const pos = LABEL_POS[k];
@@ -944,6 +952,9 @@ function renderChart3(includePV){
         anchor: pos.anchor,
         offset: pos.offset,
         font: { size: 11, weight: '600' },
+        backgroundColor: 'rgba(255,255,255,0.88)',
+        borderRadius: 3,
+        padding: { top:1, bottom:1, left:3, right:3 },
         formatter: v => (v===null || v===undefined) ? '' : v.toFixed(2),
       },
     };
@@ -989,9 +1000,11 @@ function renderChart4(includePV){
       labels: months.map(m=>m+'월'),
       datasets:[
         { type:'bar', label:'목표 소요일 초과건수', data:data.map(d=>d.overAvg), backgroundColor:'#e8c04a', yAxisID:'y',
-          datalabels:{ display:'auto', color:'#a8790f', anchor:'end', align:'top', font:{size:12,weight:'700'}, formatter:v=>v.toFixed(1) } },
+          datalabels:{ display:'auto', color:'#a8790f', anchor:'end', align:'top', font:{size:12,weight:'700'},
+            backgroundColor:'rgba(255,255,255,0.88)', borderRadius:3, padding:{top:1,bottom:1,left:3,right:3}, formatter:v=>v.toFixed(1) } },
         { type:'line', label:'목표 초과율(월)', data:data.map(d=>d.overRate), borderColor:'#5b9bd5', backgroundColor:'#5b9bd5', yAxisID:'y1', tension:.25, borderWidth:2.5,
-          datalabels:{ display:'auto', color:'#1565c0', anchor:'end', align:'bottom', offset:6, font:{size:12,weight:'700'}, formatter:v=>v.toFixed(2) } },
+          datalabels:{ display:'auto', color:'#1565c0', anchor:'end', align:'bottom', offset:10, font:{size:12,weight:'700'},
+            backgroundColor:'rgba(255,255,255,0.88)', borderRadius:3, padding:{top:1,bottom:1,left:3,right:3}, formatter:v=>v.toFixed(2) } },
         { type:'line', label:'접수목표일 초과율 목표: 3.19%', data:months.map(()=>3.19), yAxisID:'y1', borderColor:'#c62828', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false,
           hideFromLegend:true,
           datalabels:{ display:false } },
@@ -1206,7 +1219,7 @@ document.querySelectorAll('.tabs .tab[data-tab]').forEach(tab=>{
       if(tab.dataset.tab==='t3' && chart3) chart3.resize();
       if(tab.dataset.tab==='t4' && chart4) chart4.resize();
       if(tab.dataset.tab==='t5' && chartWorker) chartWorker.resize();
-      if(tab.dataset.tab==='t7'){ if(chartTenure) chartTenure.resize(); if(chartTeam) chartTeam.resize(); }
+      if(tab.dataset.tab==='t7'){ [chartTenureCount,chartTenureAvg,chartTeamCount,chartTeamAvg].forEach(c=>{ if(c) c.resize(); }); }
     });
   });
 });
