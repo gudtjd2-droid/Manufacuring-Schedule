@@ -930,11 +930,11 @@ function renderChart3(includePV){
   const data = months.map(m=>aggregateMonth(STATE.bprRows, STATE.bcrRows, m, includePV));
   const LABEL_POS = {
     workerDelay: { align:'top', anchor:'end', offset:6 },
-    revise:      { align:'top', anchor:'end', offset:20 },
-    midReview:   { align:'topLeft', anchor:'end', offset:12 },
-    apiReview:   { align:'bottomLeft', anchor:'end', offset:12 },
-    midReceipt:  { align:'topRight', anchor:'end', offset:12 },
-    apiReceipt:  { align:'bottomRight', anchor:'end', offset:12 },
+    revise:      { align:'top', anchor:'end', offset:22 },
+    midReview:   { align:'topLeft', anchor:'end', offset:16 },
+    apiReview:   { align:'bottomLeft', anchor:'end', offset:16 },
+    midReceipt:  { align:'topRight', anchor:'end', offset:30 },
+    apiReceipt:  { align:'bottomRight', anchor:'end', offset:30 },
   };
   const datasets = CHART_METRIC_KEYS.map((k,i)=>{
     const pos = LABEL_POS[k];
@@ -1003,7 +1003,7 @@ function renderChart4(includePV){
           datalabels:{ display:'auto', color:'#a8790f', anchor:'end', align:'top', font:{size:12,weight:'700'},
             backgroundColor:'rgba(255,255,255,0.88)', borderRadius:3, padding:{top:1,bottom:1,left:3,right:3}, formatter:v=>v.toFixed(1) } },
         { type:'line', label:'목표 초과율(월)', data:data.map(d=>d.overRate), borderColor:'#5b9bd5', backgroundColor:'#5b9bd5', yAxisID:'y1', tension:.25, borderWidth:2.5,
-          datalabels:{ display:'auto', color:'#1565c0', anchor:'end', align:'bottom', offset:10, font:{size:12,weight:'700'},
+          datalabels:{ display:'auto', color:'#1565c0', anchor:'end', align:'bottom', offset:22, font:{size:12,weight:'700'},
             backgroundColor:'rgba(255,255,255,0.88)', borderRadius:3, padding:{top:1,bottom:1,left:3,right:3}, formatter:v=>v.toFixed(2) } },
         { type:'line', label:'접수목표일 초과율 목표: 3.19%', data:months.map(()=>3.19), yAxisID:'y1', borderColor:'#c62828', borderDash:[6,4], borderWidth:1.5, pointRadius:0, fill:false,
           hideFromLegend:true,
@@ -1011,7 +1011,7 @@ function renderChart4(includePV){
       ]
     },
     options:{ responsive:true, maintainAspectRatio:false,
-      layout:{ padding:{ top:20, bottom:16 } },
+      layout:{ padding:{ top:36, bottom:16 } },
       scales:{
         y:{ position:'left', title:{display:true, text:'초과건수'}, beginAtZero:true },
         y1:{ position:'right', title:{display:true, text:'목표 초과율(%)'}, beginAtZero:true, grid:{drawOnChartArea:false} },
