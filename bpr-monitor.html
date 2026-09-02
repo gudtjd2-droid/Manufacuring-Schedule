@@ -268,6 +268,38 @@ function resolveLabelCollisions(items, iterations, gap){
   return items;
 }
 
+// 같은 x(같은 달)에 있는 라벨들을, 실제 선의 위아래 순서(anchorY)와 똑같은 순서로
+// 쌓아서 배치한다 — 선이 위에 있으면 숫자도 위, 선이 아래 있으면 숫자도 아래.
+function orderLabelsByAnchor(items, xTolerance, gap){
+  xTolerance = xTolerance===undefined ? 8 : xTolerance;
+  gap = gap===undefined ? 3 : gap;
+  const sorted = [...items].sort((a,b)=>a.anchorX-b.anchorX);
+  const clusters = [];
+  let current = [];
+  sorted.forEach(item=>{
+    if(current.length===0 || Math.abs(item.anchorX - current[current.length-1].anchorX) <= xTolerance){
+      current.push(item);
+    } else {
+      clusters.push(current);
+      current = [item];
+    }
+  });
+  if(current.length) clusters.push(current);
+
+  clusters.forEach(cluster=>{
+    if(cluster.length<2) return;
+    cluster.sort((a,b)=>a.anchorY-b.anchorY);
+    const centerY = cluster.reduce((s,it)=>s+it.anchorY,0)/cluster.length;
+    const totalH = cluster.reduce((s,it)=>s+it.h,0) + (cluster.length-1)*gap;
+    let y = centerY - totalH/2;
+    cluster.forEach(it=>{
+      y += it.h/2;
+      it.y = y;
+      y += it.h/2 + gap;
+    });
+  });
+}
+
 const collisionLabelPlugin = {
   id: 'collisionLabels',
   afterDatasetsDraw(chart){
@@ -295,6 +327,7 @@ const collisionLabelPlugin = {
       });
     });
     if(items.length){
+      orderLabelsByAnchor(items);
       resolveLabelCollisions(items);
       items.forEach(item=>{
         ctx.fillStyle = 'rgba(255,255,255,0.88)';
