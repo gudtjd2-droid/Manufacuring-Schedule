@@ -268,8 +268,7 @@ function resolveLabelCollisions(items, iterations, gap){
   return items;
 }
 
-// 같은 x(같은 달)에 있는 라벨들을, 실제 선의 위아래 순서(anchorY)와 똑같은 순서로
-// 쌓아서 배치한다 — 선이 위에 있으면 숫자도 위, 선이 아래 있으면 숫자도 아래.
+// 같은 x(같은 달)에 있는 라벨들을, 실제 선의 위아래 순서(anchorY)와 똑같은 순서로 정렬한다.
 function orderLabelsByAnchor(items, xTolerance, gap){
   xTolerance = xTolerance===undefined ? 8 : xTolerance;
   gap = gap===undefined ? 3 : gap;
@@ -288,15 +287,18 @@ function orderLabelsByAnchor(items, xTolerance, gap){
 
   clusters.forEach(cluster=>{
     if(cluster.length<2) return;
+    // 이미 정해진 희망 위치(item.y, anchor+dx/dy 반영됨)를 그대로 시작점으로 삼고,
+    // 실제 선 순서(anchorY)대로 정렬한 뒤, 너무 가까운 것만 최소 간격만큼만 밀어낸다.
+    // (전체를 강제로 다시 쌓지 않음 — 이미 충분히 떨어져 있으면 손대지 않는다)
     cluster.sort((a,b)=>a.anchorY-b.anchorY);
-    const centerY = cluster.reduce((s,it)=>s+it.anchorY,0)/cluster.length;
-    const totalH = cluster.reduce((s,it)=>s+it.h,0) + (cluster.length-1)*gap;
-    let y = centerY - totalH/2;
-    cluster.forEach(it=>{
-      y += it.h/2;
-      it.y = y;
-      y += it.h/2 + gap;
-    });
+    for(let i=1;i<cluster.length;i++){
+      const minY = cluster[i-1].y + cluster[i-1].h/2 + gap + cluster[i].h/2;
+      if(cluster[i].y < minY) cluster[i].y = minY;
+    }
+    for(let i=cluster.length-2;i>=0;i--){
+      const maxY = cluster[i+1].y - cluster[i+1].h/2 - gap - cluster[i].h/2;
+      if(cluster[i].y > maxY) cluster[i].y = maxY;
+    }
   });
 }
 
