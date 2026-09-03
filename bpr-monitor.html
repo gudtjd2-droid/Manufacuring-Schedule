@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BPR·BCR 작성상황 모니터링</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
 <style>
@@ -1019,8 +1019,8 @@ function renderTable(containerId, includePV, combinedOnly){
       html += `<td class="metric-group-bpr">${d.bprOver}</td><td class="metric-group-bcr">${d.bcrOver}</td>`;
     }
     html += `<td><b>${fmt(d.overAvg,1)}</b></td>`;
-    html += `<td class="${d.overRate>3.19?'over-target':''}">${fmt(d.overRate,2)}%</td>`;
-    html += `<td class="${d.cumOverRate!==null && d.cumOverRate>3.19?'over-target':''}">${d.cumOverRate!==null ? fmt(d.cumOverRate,2)+'%' : '-'}</td></tr>`;
+    html += `<td class="${d.overRate>3.19?'over-target':'target-ok'}">${fmt(d.overRate,2)}%</td>`;
+    html += `<td class="${d.cumOverRate!==null ? (d.cumOverRate>3.19?'over-target':'target-ok') : ''}">${d.cumOverRate!==null ? fmt(d.cumOverRate,2)+'%' : '-'}</td></tr>`;
   });
   html += '</tbody></table>';
   container.innerHTML = html;
@@ -1142,14 +1142,105 @@ document.getElementById('fileInput').addEventListener('change', e=>{
   if(e.target.files[0]) loadFile(e.target.files[0]);
 });
 
+function cellStyleFor(domCell){
+  const tag = domCell.tagName;
+  const cls = domCell.className || '';
+  const alignment = { horizontal:'center', vertical:'center', wrapText:true };
+
+  if(tag === 'TH'){
+    return { font:{ bold:true, sz:10.5 }, fill:{ patternType:'solid', fgColor:{rgb:'EEF0EE'} }, alignment };
+  }
+  let font = { sz:10.5 };
+  let fill = null;
+  if(cls.includes('month-cell')){ font.bold = true; fill = 'FAFBF9'; }
+  if(cls.includes('metric-group-bpr')) fill = 'EAF3F3';
+  if(cls.includes('metric-group-bcr')) fill = 'FBEFE6';
+  if(cls.includes('target-ok')){ font.bold = true; font.color = {rgb:'1565C0'}; }
+  if(cls.includes('target-over') || cls.includes('over-target')){ font.bold = true; font.color = {rgb:'B3432B'}; }
+  if(domCell.querySelector('b')) font.bold = true;
+  const style = { font, alignment };
+  if(fill) style.fill = { patternType:'solid', fgColor:{rgb:fill} };
+  return style;
+}
+
+const SOLID_BORDER = { style:'thin', color:{rgb:'888888'} };
+const DOTTED_BORDER = { style:'dotted', color:{rgb:'CCCCCC'} };
+
+function tableToStyledSheet(table){
+  const ws = {};
+  const grid = [];
+  const rows = Array.from(table.querySelectorAll('tr'));
+  const colWidths = [];
+  const groupStartCols = new Set();
+  const merges = [];
+  let headerRowCount = 0;
+  let headerBlockEnded = false;
+  let maxCol = 0;
+
+  rows.forEach((tr, rIdx)=>{
+    if(!grid[rIdx]) grid[rIdx] = [];
+    let cIdx = 0;
+    const cellsInRow = Array.from(tr.children);
+    const isAllTh = cellsInRow.every(c=>c.tagName==='TH');
+    if(isAllTh && !headerBlockEnded) headerRowCount = rIdx+1;
+    else headerBlockEnded = true;
+
+    cellsInRow.forEach(cell=>{
+      while(grid[rIdx][cIdx]) cIdx++;
+      const rowspan = parseInt(cell.getAttribute('rowspan')||'1');
+      const colspan = parseInt(cell.getAttribute('colspan')||'1');
+      if(rIdx===0) groupStartCols.add(cIdx);
+      const text = cell.textContent.trim();
+      let val = text;
+      let type = 's';
+      if(text!=='' && text!=='-' && /^-?\d+(\.\d+)?%?$/.test(text)){
+        val = parseFloat(text);
+        type = 'n';
+      }
+      const addr = XLSX.utils.encode_cell({ r:rIdx, c:cIdx });
+      ws[addr] = { v: val, t: type, s: cellStyleFor(cell) };
+      if(rowspan>1 || colspan>1){
+        merges.push({ s:{ r:rIdx, c:cIdx }, e:{ r:rIdx+rowspan-1, c:cIdx+colspan-1 } });
+      }
+      for(let rr=0; rr<rowspan; rr++){
+        if(!grid[rIdx+rr]) grid[rIdx+rr] = [];
+        for(let cc=0; cc<colspan; cc++){ grid[rIdx+rr][cIdx+cc] = true; }
+      }
+      colWidths[cIdx] = Math.max(colWidths[cIdx]||0, text.length);
+      maxCol = Math.max(maxCol, cIdx+colspan-1);
+      cIdx += colspan;
+    });
+  });
+
+  const totalRows = rows.length;
+  const totalCols = colWidths.length;
+  for(let r=0; r<totalRows; r++){
+    for(let c=0; c<totalCols; c++){
+      const addr = XLSX.utils.encode_cell({ r, c });
+      if(!ws[addr]) continue;
+      const top = (r===0 || r===headerRowCount) ? SOLID_BORDER : DOTTED_BORDER;
+      const bottom = (r===totalRows-1 || r===headerRowCount-1) ? SOLID_BORDER : DOTTED_BORDER;
+      const left = (c===0 || groupStartCols.has(c)) ? SOLID_BORDER : DOTTED_BORDER;
+      const right = (c===totalCols-1) ? SOLID_BORDER : DOTTED_BORDER;
+      ws[addr].s.border = { top, bottom, left, right };
+    }
+  }
+
+  ws['!ref'] = XLSX.utils.encode_range({ s:{r:0,c:0}, e:{r: totalRows-1, c: maxCol} });
+  ws['!merges'] = merges;
+  ws['!cols'] = colWidths.map(w=>({ wch: Math.min(Math.max(w+3, 9), 32) }));
+  ws['!freeze'] = { xSplit:0, ySplit: headerRowCount };
+  return ws;
+}
+
 function exportTablesToExcel(){
   const wb = XLSX.utils.book_new();
   let sheetCount = 0;
 
   function addTableSheet(tableEl, sheetName){
     if(!tableEl) return;
-    const ws = XLSX.utils.table_to_sheet(tableEl);
     const safeName = sheetName.replace(/[:\\/?*\[\]]/g, '').slice(0, 31);
+    const ws = tableToStyledSheet(tableEl);
     XLSX.utils.book_append_sheet(wb, ws, safeName);
     sheetCount++;
   }
