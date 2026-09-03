@@ -160,6 +160,10 @@
 
   <div id="content" style="display:none;">
 
+    <div style="display:flex; justify-content:flex-end; margin-bottom:10px;">
+      <button class="btn" id="exportExcelBtn" style="background:var(--ok);">📊 표 엑셀로 다운로드</button>
+    </div>
+
     <div class="tabs">
       <div class="tab active" data-tab="t1">1. PV 제외 · 월별 전체 품목</div>
       <div class="tab" data-tab="t2">2. PV 포함 · 월별 전체 품목</div>
@@ -239,7 +243,6 @@
 <script>
 if(window.Chart && window.ChartDataLabels){ Chart.register(ChartDataLabels); }
 
-// 겹치는 라벨을 자동으로 서로 밀어내는 충돌방지 알고리즘.
 function resolveLabelCollisions(items, iterations, gap){
   iterations = iterations || 60;
   gap = gap===undefined ? 3 : gap;
@@ -268,7 +271,6 @@ function resolveLabelCollisions(items, iterations, gap){
   return items;
 }
 
-// 같은 x(같은 달)에 있는 라벨들을, 실제 선의 위아래 순서(anchorY)와 똑같은 순서로 정렬한다.
 function orderLabelsByAnchor(items, xTolerance, gap){
   xTolerance = xTolerance===undefined ? 8 : xTolerance;
   gap = gap===undefined ? 3 : gap;
@@ -287,9 +289,6 @@ function orderLabelsByAnchor(items, xTolerance, gap){
 
   clusters.forEach(cluster=>{
     if(cluster.length<2) return;
-    // 이미 정해진 희망 위치(item.y, anchor+dx/dy 반영됨)를 그대로 시작점으로 삼고,
-    // 실제 선 순서(anchorY)대로 정렬한 뒤, 너무 가까운 것만 최소 간격만큼만 밀어낸다.
-    // (전체를 강제로 다시 쌓지 않음 — 이미 충분히 떨어져 있으면 손대지 않는다)
     cluster.sort((a,b)=>a.anchorY-b.anchorY);
     for(let i=1;i<cluster.length;i++){
       const minY = cluster[i-1].y + cluster[i-1].h/2 + gap + cluster[i].h/2;
@@ -1142,6 +1141,41 @@ function loadFile(file){
 document.getElementById('fileInput').addEventListener('change', e=>{
   if(e.target.files[0]) loadFile(e.target.files[0]);
 });
+
+function exportTablesToExcel(){
+  const wb = XLSX.utils.book_new();
+  let sheetCount = 0;
+
+  function addTableSheet(tableEl, sheetName){
+    if(!tableEl) return;
+    const ws = XLSX.utils.table_to_sheet(tableEl);
+    const safeName = sheetName.replace(/[:\\/?*\[\]]/g, '').slice(0, 31);
+    XLSX.utils.book_append_sheet(wb, ws, safeName);
+    sheetCount++;
+  }
+
+  addTableSheet(document.querySelector('#table1 table'), 'PV제외_월별전체품목');
+  addTableSheet(document.querySelector('#table2 table'), 'PV포함_월별전체품목');
+
+  const t5tables = document.querySelectorAll('#t5body table');
+  if(t5tables.length === 2){
+    addTableSheet(t5tables[0], '작업자별_오류유형분류');
+    addTableSheet(t5tables[1], '작업자별_월별오류건수');
+  } else if(t5tables.length === 1){
+    addTableSheet(t5tables[0], '작업자별_월별오류건수');
+  }
+
+  addTableSheet(document.querySelector('#t7body table'), '인원별_통계');
+
+  if(sheetCount === 0){
+    alert('내보낼 표 데이터가 없습니다. 먼저 데이터를 붙여넣고 계산해주세요.');
+    return;
+  }
+  const stamp = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `BPR_BCR_모니터링_표_${stamp}.xlsx`);
+}
+
+document.getElementById('exportExcelBtn').addEventListener('click', exportTablesToExcel);
 
 const SNAPSHOT_PREFIX = 'bprMonitorSnapshot:';
 
