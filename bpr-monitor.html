@@ -460,8 +460,14 @@ function aggregateMonth(bprRows, bcrRows, month, includePV){
     metrics[k] = { bpr: bprAvg, bcr: bcrAvg, combined };
   });
 
-  const bprOver = bprSet.filter(r=>r.overTarget===1).length;
-  const bcrOver = bcrSet.filter(r=>r.overTarget===1).length;
+  function overCount(rows){
+    const nonExcludedOver = rows.filter(r=>!r.excluded && r.overTarget===1).length;
+    if(!includePV) return nonExcludedOver;
+    const pvOver = rows.filter(r=>r.pv && r.overTarget===1).length;
+    return nonExcludedOver + pvOver;
+  }
+  const bprOver = overCount(bprAll);
+  const bcrOver = overCount(bcrAll);
   const issued = bprAll.length;
   const overAvg = (bprOver + bcrOver) / 2;
   const overRate = issued>0 ? (overAvg/issued*100) : 0;
@@ -729,6 +735,7 @@ function renderWorkerErrorTable(revRows, period){
   });
   html += '</tbody></table></div>';
   document.getElementById('t5body').innerHTML = html;
+  makeAllTablesSortable(document.getElementById('t5body'));
 
   document.getElementById('periodToggle5').addEventListener('click', e=>{
     const btn = e.target.closest('.toggle-btn'); if(!btn) return;
@@ -854,6 +861,7 @@ function renderTeamStats(rows, period){
   });
   html += '</tbody></table></div>';
   document.getElementById('t7body').innerHTML = html;
+  makeAllTablesSortable(document.getElementById('t7body'));
 
   document.getElementById('periodToggle7').addEventListener('click', e=>{
     const btn = e.target.closest('.toggle-btn'); if(!btn) return;
@@ -982,6 +990,60 @@ function addCumulativeOverRate(data){
   return data;
 }
 
+function makeTableSortable(table){
+  const theadRows = table.querySelectorAll('thead tr');
+  const tbody = table.querySelector('tbody');
+  if(!theadRows.length || !tbody) return;
+
+  const grid = [];
+  const clickable = [];
+  theadRows.forEach((tr, rIdx)=>{
+    if(!grid[rIdx]) grid[rIdx] = [];
+    let cIdx = 0;
+    Array.from(tr.children).forEach(th=>{
+      while(grid[rIdx][cIdx]) cIdx++;
+      const rowspan = parseInt(th.getAttribute('rowspan')||'1');
+      const colspan = parseInt(th.getAttribute('colspan')||'1');
+      if(colspan===1){ clickable.push({ th, colIdx: cIdx }); }
+      for(let rr=0; rr<rowspan; rr++){
+        if(!grid[rIdx+rr]) grid[rIdx+rr] = [];
+        for(let cc=0; cc<colspan; cc++){ grid[rIdx+rr][cIdx+cc] = true; }
+      }
+      cIdx += colspan;
+    });
+  });
+
+  const allThs = clickable.map(c=>c.th);
+  clickable.forEach(({th, colIdx})=>{
+    if(!th.dataset.baseHtml) th.dataset.baseHtml = th.innerHTML;
+    th.style.cursor = 'pointer';
+    th.style.userSelect = 'none';
+    th.title = '클릭하면 이 항목 기준으로 정렬됩니다';
+    th.addEventListener('click', ()=>{
+      const nextDir = th.dataset.sortDir === 'asc' ? 'desc' : 'asc';
+      allThs.forEach(t=>{ t.dataset.sortDir=''; t.innerHTML = t.dataset.baseHtml; });
+      th.dataset.sortDir = nextDir;
+      th.innerHTML = th.dataset.baseHtml + (nextDir==='asc' ? ' ▲' : ' ▼');
+
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      rows.sort((r1,r2)=>{
+        const c1 = r1.children[colIdx], c2 = r2.children[colIdx];
+        if(!c1 || !c2) return 0;
+        const t1 = c1.textContent.trim().replace(/%$/,'');
+        const t2 = c2.textContent.trim().replace(/%$/,'');
+        const n1 = parseFloat(t1), n2 = parseFloat(t2);
+        const bothNumeric = !isNaN(n1) && !isNaN(n2) && t1!=='' && t2!=='' && t1!=='-' && t2!=='-';
+        const cmp = bothNumeric ? (n1-n2) : t1.localeCompare(t2, 'ko');
+        return nextDir==='asc' ? cmp : -cmp;
+      });
+      rows.forEach(r=>tbody.appendChild(r));
+    });
+  });
+}
+function makeAllTablesSortable(container){
+  container.querySelectorAll('table').forEach(makeTableSortable);
+}
+
 function renderTable(containerId, includePV, combinedOnly){
   const container = document.getElementById(containerId);
   const months = STATE.monthsPresent;
@@ -1024,6 +1086,7 @@ function renderTable(containerId, includePV, combinedOnly){
   });
   html += '</tbody></table>';
   container.innerHTML = html;
+  makeAllTablesSortable(container);
 }
 
 let chart3 = null, chart4 = null;
@@ -1091,6 +1154,11 @@ function renderChart3(includePV){
 function renderChart4(includePV){
   const months = STATE.monthsPresent;
   const data = months.map(m=>aggregateMonth(STATE.bprRows, STATE.bcrRows, m, includePV));
+  const pvOverData = months.map(m=>{
+    const bprPv = STATE.bprRows.filter(r=>r.month===m && r.pv && r.overTarget===1).length;
+    const bcrPv = STATE.bcrRows.filter(r=>r.month===m && r.pv && r.overTarget===1).length;
+    return (bprPv + bcrPv) / 2;
+  });
   const ctx = document.getElementById('chart4').getContext('2d');
   if(chart4) chart4.destroy();
   chart4 = new Chart(ctx, {
@@ -1100,6 +1168,9 @@ function renderChart4(includePV){
         { type:'bar', label:'목표 소요일 초과건수', data:data.map(d=>d.overAvg), backgroundColor:'#e8c04a', yAxisID:'y',
           datalabels:{ display:false },
           collisionLabel:{ color:'#a8790f', dx:0, dy:-14, formatter:v=>v.toFixed(1) } },
+        { type:'bar', label:'PV 품목 목표소요일 초과건수', data: pvOverData, backgroundColor:'#f0a868', yAxisID:'y',
+          datalabels:{ display:false },
+          collisionLabel:{ color:'#c1732f', dx:0, dy:-14, formatter:v=>v.toFixed(1) } },
         { type:'line', label:'목표 초과율(월)', data:data.map(d=>d.overRate), borderColor:'#5b9bd5', backgroundColor:'#5b9bd5', yAxisID:'y1', tension:.25, borderWidth:2.5,
           datalabels:{ display:false },
           collisionLabel:{ color:'#1565c0', dx:0, dy:16, formatter:v=>v.toFixed(2) } },
@@ -1142,6 +1213,9 @@ document.getElementById('fileInput').addEventListener('change', e=>{
   if(e.target.files[0]) loadFile(e.target.files[0]);
 });
 
+const SOLID_BORDER = { style:'thin', color:{rgb:'888888'} };
+const DOTTED_BORDER = { style:'dotted', color:{rgb:'CCCCCC'} };
+
 function cellStyleFor(domCell){
   const tag = domCell.tagName;
   const cls = domCell.className || '';
@@ -1162,9 +1236,6 @@ function cellStyleFor(domCell){
   if(fill) style.fill = { patternType:'solid', fgColor:{rgb:fill} };
   return style;
 }
-
-const SOLID_BORDER = { style:'thin', color:{rgb:'888888'} };
-const DOTTED_BORDER = { style:'dotted', color:{rgb:'CCCCCC'} };
 
 function tableToStyledSheet(table){
   const ws = {};
