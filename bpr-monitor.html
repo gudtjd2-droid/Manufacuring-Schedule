@@ -460,11 +460,16 @@ function aggregateMonth(bprRows, bcrRows, month, includePV){
     metrics[k] = { bpr: bprAvg, bcr: bcrAvg, combined };
   });
 
+  // 목표초과 건수(BPR/BCR) — 실제 엑셀 수식 기반이되, 중복 카운트 방지 조건 추가:
+  //   =IFERROR(SUMIFS(목표일초과건, 월=..., 평가제외=""), 0)
+  //   +IFERROR(SUMIFS(목표일초과건, 월=..., PV여부확인="O", 평가제외="<>"), 0)
+  // 즉 앞 항은 "평가제외 안 된 건", 뒤 항은 "PV=O 이면서 동시에 평가제외도 된 건"만 센다.
+  // → PV=O인데 평가제외가 안 된 건은 앞 항에서 이미 세고 있으므로 뒤 항에서는 빠짐(중복 방지).
   function overCount(rows){
     const nonExcludedOver = rows.filter(r=>!r.excluded && r.overTarget===1).length;
     if(!includePV) return nonExcludedOver;
-    const pvOver = rows.filter(r=>r.pv && r.overTarget===1).length;
-    return nonExcludedOver + pvOver;
+    const pvExcludedOver = rows.filter(r=>r.pv && r.excluded && r.overTarget===1).length;
+    return nonExcludedOver + pvExcludedOver;
   }
   const bprOver = overCount(bprAll);
   const bcrOver = overCount(bcrAll);
@@ -1155,8 +1160,8 @@ function renderChart4(includePV){
   const months = STATE.monthsPresent;
   const data = months.map(m=>aggregateMonth(STATE.bprRows, STATE.bcrRows, m, includePV));
   const pvOverData = months.map(m=>{
-    const bprPv = STATE.bprRows.filter(r=>r.month===m && r.pv && r.overTarget===1).length;
-    const bcrPv = STATE.bcrRows.filter(r=>r.month===m && r.pv && r.overTarget===1).length;
+    const bprPv = STATE.bprRows.filter(r=>r.month===m && r.pv && r.excluded && r.overTarget===1).length;
+    const bcrPv = STATE.bcrRows.filter(r=>r.month===m && r.pv && r.excluded && r.overTarget===1).length;
     return (bprPv + bcrPv) / 2;
   });
   const ctx = document.getElementById('chart4').getContext('2d');
