@@ -171,6 +171,7 @@
       <div class="tab" data-tab="t4">4. BPR,BCR 접수목표일 초과 건수 추이</div>
       <div class="tab" data-tab="t5">5. 작업자별 월별 오류 건수</div>
       <div class="tab" data-tab="t7">6. 인원별 통계(연차·항목별)</div>
+      <div class="tab" data-tab="t8">7. 제관설정 품목 vs 실시간 품목</div>
     </div>
 
     <div class="panel active" id="t1"><div class="card">
@@ -229,6 +230,12 @@
       <h2>인원별 통계 (연차 · 항목별)</h2>
       <div class="desc" id="t7desc">'인원별 통계' 데이터가 붙여넣어지지 않았습니다. 위 ④ 칸에 '26년_통계_제조팀' 시트를 붙여넣고 다시 계산해주세요.</div>
       <div id="t7body"></div>
+    </div></div>
+
+    <div class="panel" id="t8"><div class="card">
+      <h2>제관설정 품목 vs 실시간 품목</h2>
+      <div class="desc" id="t8desc">'BPR·BCR 수정 이력' 데이터가 붙여넣어지지 않았습니다. 위 ③ 칸에 '26년_BPR, BCR 수정' 시트를 붙여넣고 다시 계산해주세요.</div>
+      <div id="t8body"></div>
     </div></div>
 
     <div class="assumptions">
@@ -349,7 +356,10 @@ const LETTER_TO_MONTH = {A:1,B:2,C:3,D:4,E:5,F:6,G:7,H:8,I:9,J:10,K:11,L:12};
 
 const BPR_COLS = {
   month: '월',
+  docNo: '발행번호',
+  seq: '해당월순번',
   pv: 'PV여부확인',
+  realtime: '실시간품목',
   excl: '평가제외(외부요인)',
   reason: '평가제외사유',
   workerDelay: '작업자제출지연일(공휴일제외)',
@@ -366,7 +376,10 @@ const BPR_COLS = {
 };
 const BCR_COLS = {
   month: '월',
+  docNo: '발행번호',
+  seq: '해당월순번',
   pv: 'PV여부확인',
+  realtime: '실시간품목',
   excl: '평가제외(외부요인)',
   reason: '평가제외사유',
   workerDelay: '작업자제출지연일(공휴일제외)',
@@ -422,6 +435,9 @@ function extractRows(rows, headerRowIdx, colsDef){
     if(!monthLetter || !LETTER_TO_MONTH[String(monthLetter).trim()]) continue;
     const rec = { month: LETTER_TO_MONTH[String(monthLetter).trim()] };
     rec.pv = norm(row[idx.pv]) === 'O';
+    rec.realtime = norm(row[idx.realtime]) === 'O';
+    rec.docNo = (idx.docNo!==undefined && row[idx.docNo]!==undefined && row[idx.docNo]!==null) ? String(row[idx.docNo]).trim() : '';
+    rec.seq = (idx.seq!==undefined && row[idx.seq]!==undefined && row[idx.seq]!==null) ? String(row[idx.seq]).trim() : '';
     rec.excluded = row[idx.excl] !== undefined && row[idx.excl] !== null && String(row[idx.excl]).trim() !== '';
     rec.reason = (idx.reason!==undefined && row[idx.reason]!==undefined && row[idx.reason]!==null) ? String(row[idx.reason]).trim() : '';
     METRIC_KEYS.forEach(k=>{
@@ -528,12 +544,14 @@ function handleWorkbook(wb){
     const revRaw = XLSX.utils.sheet_to_json(wb.Sheets[revSheetName], {header:1, raw:true, defval:undefined});
     const revHeaderIdx = findRevisionHeaderRow(revRaw);
     const revRows = extractRevisionRows(revRaw, revHeaderIdx);
-    if(revRows.length){ renderWorkerErrorTable(revRows); }
+    if(revRows.length){ renderWorkerErrorTable(revRows); renderRealtimeTab(revRows); }
   }
 }
 
 const REV_COLS = {
   month: '월',
+  docNo: '발행번호',
+  seq: '해당월순번',
   worker1: '작성자(1)',
   confirmer1: '확인자(1)',
   worker2: '작성자(2)',
@@ -622,6 +640,8 @@ function extractRevisionRows(rows, headerRowIdx){
     const monthLetter = row[idx.month];
     if(!monthLetter || !LETTER_TO_MONTH[String(monthLetter).trim()]) continue;
     const month = LETTER_TO_MONTH[String(monthLetter).trim()];
+    const docNo = (idx.docNo!==undefined && row[idx.docNo]!==undefined && row[idx.docNo]!==null) ? String(row[idx.docNo]).trim() : '';
+    const seq = (idx.seq!==undefined && row[idx.seq]!==undefined && row[idx.seq]!==null) ? String(row[idx.seq]).trim() : '';
 
     if(hasCategoryCols){
       REV_ROLE_KEYS.forEach(roleKey=>{
@@ -636,7 +656,7 @@ function extractRevisionRows(rows, headerRowIdx){
           const bprVal = (roleCols.bpr!==undefined && typeof row[roleCols.bpr]==='number') ? row[roleCols.bpr] : 0;
           const bcrVal = (roleCols.bcr!==undefined && typeof row[roleCols.bcr]==='number') ? row[roleCols.bcr] : 0;
           const count = bprVal + bcrVal;
-          if(count>0){ out.push({ month, worker:name, category:block.key, count }); }
+          if(count>0){ out.push({ month, worker:name, category:block.key, count, docNo, seq }); }
         });
       });
     } else {
@@ -651,7 +671,7 @@ function extractRevisionRows(rows, headerRowIdx){
           const name = (v!==undefined && v!==null) ? correctWorkerName(String(v).trim()) : '';
           if(isValidWorkerName(name)) namesInRow.add(name);
         });
-        namesInRow.forEach(worker=>{ out.push({ month, worker, category:'approx', count }); });
+        namesInRow.forEach(worker=>{ out.push({ month, worker, category:'approx', count, docNo, seq }); });
       }
     }
   }
@@ -760,6 +780,94 @@ function renderWorkerErrorTable(revRows, period){
   });
 }
 let chartWorker = null;
+
+// ---- 제관설정 품목 vs 실시간 품목 비교 (7번 탭) ----
+function buildRealtimeMap(){
+  const map = {};
+  function fill(rows){
+    rows.forEach(r=>{
+      if(!r.docNo) return;
+      const key = r.month + '|' + r.docNo + '|' + r.seq;
+      if(!(key in map)) map[key] = r.realtime;
+    });
+  }
+  fill(STATE.bprRows);
+  fill(STATE.bcrRows);
+  return map;
+}
+
+function attachRealtimeToRevisions(revRows){
+  const map = buildRealtimeMap();
+  return revRows.map(r=>{
+    const key = r.month + '|' + r.docNo + '|' + r.seq;
+    return Object.assign({}, r, { realtime: map.hasOwnProperty(key) ? map[key] : null });
+  });
+}
+
+function renderRealtimeTab(revRows){
+  const months = STATE.monthsPresent;
+
+  let html = '<div class="desc" style="margin-bottom:10px;">※ BCR 현황 원본 시트에는 \'실시간 품목\' 컬럼 자체가 없어서(BPR에만 있음), 아래 BCR \'실시간\' 열은 항상 0으로 나옵니다 — 오류가 아니라 원본 데이터 구조상 그렇습니다.</div>';
+  html += '<h3 style="font-size:13px; margin:0 0 8px;">① 월별 문서(발행) 개수</h3>';
+  html += '<div class="table-scroll" style="margin-bottom:20px;"><table><thead><tr>'
+    + '<th rowspan="2">월</th><th colspan="2">BPR</th><th colspan="2">BCR</th></tr><tr>'
+    + '<th>실시간</th><th>제관설정</th><th>실시간</th><th>제관설정</th></tr></thead><tbody>';
+  months.forEach(m=>{
+    const bprM = STATE.bprRows.filter(r=>r.month===m);
+    const bcrM = STATE.bcrRows.filter(r=>r.month===m);
+    const bprRt = bprM.filter(r=>r.realtime).length, bprSet = bprM.filter(r=>!r.realtime).length;
+    const bcrRt = bcrM.filter(r=>r.realtime).length, bcrSet = bcrM.filter(r=>!r.realtime).length;
+    html += `<tr><td class="month-cell">${m}월</td><td>${bprRt}</td><td>${bprSet}</td><td>${bcrRt}</td><td>${bcrSet}</td></tr>`;
+  });
+  html += '</tbody></table></div>';
+
+  html += '<h3 style="font-size:13px; margin:0 0 8px;">② 월별 목표일초과 건수</h3>';
+  html += '<div class="table-scroll" style="margin-bottom:20px;"><table><thead><tr>'
+    + '<th rowspan="2">월</th><th colspan="2">BPR</th><th colspan="2">BCR</th></tr><tr>'
+    + '<th>실시간</th><th>제관설정</th><th>실시간</th><th>제관설정</th></tr></thead><tbody>';
+  months.forEach(m=>{
+    const bprM = STATE.bprRows.filter(r=>r.month===m && r.overTarget===1);
+    const bcrM = STATE.bcrRows.filter(r=>r.month===m && r.overTarget===1);
+    const bprRt = bprM.filter(r=>r.realtime).length, bprSet = bprM.filter(r=>!r.realtime).length;
+    const bcrRt = bcrM.filter(r=>r.realtime).length, bcrSet = bcrM.filter(r=>!r.realtime).length;
+    html += `<tr><td class="month-cell">${m}월</td><td>${bprRt}</td><td>${bprSet}</td><td>${bcrRt}</td><td>${bcrSet}</td></tr>`;
+  });
+  html += '</tbody></table></div>';
+
+  const linked = attachRealtimeToRevisions(revRows);
+  const unlinked = linked.filter(r=>r.realtime===null).length;
+  const workers = Array.from(new Set(linked.map(r=>r.worker))).sort();
+  const perWorker = {};
+  workers.forEach(w=>{ perWorker[w] = { realtime:0, setup:0, unknown:0 }; });
+  linked.forEach(r=>{
+    const bucket = r.realtime===true ? 'realtime' : (r.realtime===false ? 'setup' : 'unknown');
+    perWorker[r.worker][bucket] += r.count;
+  });
+  const sortedWorkers = workers.slice().sort((a,b)=>{
+    const ta = perWorker[a].realtime+perWorker[a].setup+perWorker[a].unknown;
+    const tb = perWorker[b].realtime+perWorker[b].setup+perWorker[b].unknown;
+    return tb-ta;
+  });
+
+  html += '<h3 style="font-size:13px; margin:0 0 8px;">③ 작업자별 오류 건수</h3>';
+  if(unlinked>0){
+    html += `<div class="desc" style="margin-bottom:10px;">⚠ 수정이력 ${unlinked}건은 발행번호·해당월순번으로 BPR/BCR 원본과 연결하지 못해 '연결안됨'으로 따로 표시했습니다. (③ 칸에 발행번호·해당월순번 컬럼이 포함되도록 헤더 행부터 붙여넣었는지 확인해주세요)</div>`;
+  }
+  html += '<div class="table-scroll"><table><thead><tr><th>작업자</th><th>실시간</th><th>제관설정</th>'
+    + (unlinked>0 ? '<th>연결안됨</th>' : '') + '<th>합계</th></tr></thead><tbody>';
+  sortedWorkers.forEach(w=>{
+    const p = perWorker[w];
+    const total = p.realtime + p.setup + p.unknown;
+    html += `<tr><td class="month-cell">${w}</td><td class="${p.realtime>0?'over-target':''}">${p.realtime||'-'}</td><td class="${p.setup>0?'over-target':''}">${p.setup||'-'}</td>`
+      + (unlinked>0 ? `<td>${p.unknown||'-'}</td>` : '')
+      + `<td><b>${total}</b></td></tr>`;
+  });
+  html += '</tbody></table></div>';
+
+  document.getElementById('t8desc').textContent = `실시간 품목(제조 중 실시간 작성) vs 제관설정 품목(제조관리팀이 시간 설정)을 기준으로 나눈 통계입니다. (수정이력 ${revRows.length}건 중 ${revRows.length-unlinked}건 연결됨)`;
+  document.getElementById('t8body').innerHTML = html;
+  makeAllTablesSortable(document.getElementById('t8body'));
+}
 
 const TEAM_COLS = {
   team: ['소속',0], tenure: ['입사년차',0], name: ['성명',0],
@@ -1154,8 +1262,6 @@ function renderChart3(includePV){
 function renderChart4(includePV){
   const months = STATE.monthsPresent;
   const data = months.map(m=>aggregateMonth(STATE.bprRows, STATE.bcrRows, m, includePV));
-  // PV 품목만의 목표소요일 초과건수(막대 하나 더) — "PV=O이면서 평가제외도 된 건"만.
-  // "PV 제외" 토글에서는 PV 품목이랑 상관없는 화면이므로 이 막대 자체를 아예 뺀다.
   const pvOverData = months.map(m=>{
     const bprPv = STATE.bprRows.filter(r=>r.month===m && r.pv && r.excluded && r.overTarget===1).length;
     const bcrPv = STATE.bcrRows.filter(r=>r.month===m && r.pv && r.excluded && r.overTarget===1).length;
@@ -1338,6 +1444,10 @@ function exportTablesToExcel(){
 
   addTableSheet(document.querySelector('#t7body table'), '인원별_통계');
 
+  const t8tables = document.querySelectorAll('#t8body table');
+  const t8names = ['제관vs실시간_월별문서개수', '제관vs실시간_월별초과건수', '제관vs실시간_작업자별오류'];
+  t8tables.forEach((tbl, i)=> addTableSheet(tbl, t8names[i] || `제관vs실시간_${i+1}`));
+
   if(sheetCount === 0){
     alert('내보낼 표 데이터가 없습니다. 먼저 데이터를 붙여넣고 계산해주세요.');
     return;
@@ -1489,6 +1599,7 @@ document.getElementById('applyPasteBtn').addEventListener('click', ()=>{
       const revRows = extractRevisionRows(revRaw, revHeaderIdx);
       if(revRows.length){
         renderWorkerErrorTable(revRows);
+        renderRealtimeTab(revRows);
         msg += ` / 수정이력 ${revRows.length}건 인식`;
       } else {
         document.getElementById('t5desc').textContent = '수정 이력 데이터에서 작성자(1) 또는 월 컬럼을 찾지 못했습니다. 헤더 행부터 붙여넣었는지 확인해주세요.';
