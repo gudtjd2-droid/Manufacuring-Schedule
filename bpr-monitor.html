@@ -358,8 +358,13 @@ const BPR_COLS = {
   month: '월',
   docNo: '발행번호',
   seq: '해당월순번',
+  itemName: '품목명',
   pv: 'PV여부확인',
   realtime: '실시간품목',
+  worker1: '작성자(1)',
+  confirmer1: '확인자(1)',
+  worker2: '작성자(2)',
+  confirmer2: '확인자(2)',
   excl: '평가제외(외부요인)',
   reason: '평가제외사유',
   workerDelay: '작업자제출지연일(공휴일제외)',
@@ -378,6 +383,7 @@ const BCR_COLS = {
   month: '월',
   docNo: '발행번호',
   seq: '해당월순번',
+  itemName: '품목명',
   pv: 'PV여부확인',
   realtime: '실시간품목',
   excl: '평가제외(외부요인)',
@@ -437,9 +443,15 @@ function extractRows(rows, headerRowIdx, colsDef){
     rec.pv = norm(row[idx.pv]) === 'O';
     rec.realtime = norm(row[idx.realtime]) === 'O';
     rec.docNo = (idx.docNo!==undefined && row[idx.docNo]!==undefined && row[idx.docNo]!==null) ? String(row[idx.docNo]).trim() : '';
+    rec.itemName = (idx.itemName!==undefined && row[idx.itemName]!==undefined && row[idx.itemName]!==null) ? String(row[idx.itemName]).trim() : '';
     rec.seq = (idx.seq!==undefined && row[idx.seq]!==undefined && row[idx.seq]!==null) ? String(row[idx.seq]).trim() : '';
     rec.excluded = row[idx.excl] !== undefined && row[idx.excl] !== null && String(row[idx.excl]).trim() !== '';
     rec.reason = (idx.reason!==undefined && row[idx.reason]!==undefined && row[idx.reason]!==null) ? String(row[idx.reason]).trim() : '';
+    ['worker1','confirmer1','worker2','confirmer2'].forEach(rf=>{
+      const v = idx[rf]!==undefined ? row[idx[rf]] : undefined;
+      const name = (v!==undefined && v!==null) ? correctWorkerName(String(v).trim()) : '';
+      rec[rf] = isValidWorkerName(name) ? name : '';
+    });
     METRIC_KEYS.forEach(k=>{
       const v = idx[k]!==undefined ? row[idx[k]] : undefined;
       rec[k] = (typeof v === 'number') ? v : null;
@@ -544,7 +556,8 @@ function handleWorkbook(wb){
     const revRaw = XLSX.utils.sheet_to_json(wb.Sheets[revSheetName], {header:1, raw:true, defval:undefined});
     const revHeaderIdx = findRevisionHeaderRow(revRaw);
     const revRows = extractRevisionRows(revRaw, revHeaderIdx);
-    if(revRows.length){ renderWorkerErrorTable(revRows); renderRealtimeTab(revRows); }
+    const reissueRows = extractReissueRows(revRaw, revHeaderIdx);
+    if(revRows.length){ renderWorkerErrorTable(revRows); renderRealtimeTab(revRows, reissueRows); }
   }
 }
 
@@ -781,14 +794,16 @@ function renderWorkerErrorTable(revRows, period){
 }
 let chartWorker = null;
 
-// ---- 제관설정 품목 vs 실시간 품목 비교 (7번 탭) ----
+function isEDMItem(name){
+  return (name||'').toUpperCase().includes('EDM');
+}
 function buildRealtimeMap(){
   const map = {};
   function fill(rows){
     rows.forEach(r=>{
       if(!r.docNo) return;
       const key = r.month + '|' + r.docNo + '|' + r.seq;
-      if(!(key in map)) map[key] = r.realtime;
+      if(!(key in map)) map[key] = { realtime: r.realtime, itemName: r.itemName };
     });
   }
   fill(STATE.bprRows);
@@ -800,73 +815,199 @@ function attachRealtimeToRevisions(revRows){
   const map = buildRealtimeMap();
   return revRows.map(r=>{
     const key = r.month + '|' + r.docNo + '|' + r.seq;
-    return Object.assign({}, r, { realtime: map.hasOwnProperty(key) ? map[key] : null });
+    const info = map[key];
+    return Object.assign({}, r, {
+      realtime: info ? info.realtime : null,
+      itemName: info ? info.itemName : '',
+    });
   });
 }
 
-function renderRealtimeTab(revRows){
-  const months = STATE.monthsPresent;
-
-  let html = '<div class="desc" style="margin-bottom:10px;">※ BCR 현황 원본 시트에는 \'실시간 품목\' 컬럼 자체가 없어서(BPR에만 있음), 아래 BCR \'실시간\' 열은 항상 0으로 나옵니다 — 오류가 아니라 원본 데이터 구조상 그렇습니다.</div>';
-  html += '<h3 style="font-size:13px; margin:0 0 8px;">① 월별 문서(발행) 개수</h3>';
-  html += '<div class="table-scroll" style="margin-bottom:20px;"><table><thead><tr>'
-    + '<th rowspan="2">월</th><th colspan="2">BPR</th><th colspan="2">BCR</th></tr><tr>'
-    + '<th>실시간</th><th>제관설정</th><th>실시간</th><th>제관설정</th></tr></thead><tbody>';
-  months.forEach(m=>{
-    const bprM = STATE.bprRows.filter(r=>r.month===m);
-    const bcrM = STATE.bcrRows.filter(r=>r.month===m);
-    const bprRt = bprM.filter(r=>r.realtime).length, bprSet = bprM.filter(r=>!r.realtime).length;
-    const bcrRt = bcrM.filter(r=>r.realtime).length, bcrSet = bcrM.filter(r=>!r.realtime).length;
-    html += `<tr><td class="month-cell">${m}월</td><td>${bprRt}</td><td>${bprSet}</td><td>${bcrRt}</td><td>${bcrSet}</td></tr>`;
+function extractReissueRows(rows, headerRowIdx){
+  const map = buildHeaderMap(rows, headerRowIdx);
+  const idxMonth = map[norm('월')];
+  const idxDocNo = map[norm('발행번호')];
+  const idxSeq = map[norm('해당월순번')];
+  const idxBpr = map[norm('BPR 재발행 건수(제조)')];
+  const idxBcr = map[norm('BCR 재발행 건수(제조)')];
+  const out = [];
+  for(let r=headerRowIdx+1; r<rows.length; r++){
+    const row = rows[r];
+    if(!row || row.length===0) continue;
+    const monthLetter = row[idxMonth];
+    if(!monthLetter || !LETTER_TO_MONTH[String(monthLetter).trim()]) continue;
+    const month = LETTER_TO_MONTH[String(monthLetter).trim()];
+    const docNo = (idxDocNo!==undefined && row[idxDocNo]!==undefined && row[idxDocNo]!==null) ? String(row[idxDocNo]).trim() : '';
+    const seq = (idxSeq!==undefined && row[idxSeq]!==undefined && row[idxSeq]!==null) ? String(row[idxSeq]).trim() : '';
+    const bprVal = (idxBpr!==undefined && typeof row[idxBpr]==='number') ? row[idxBpr] : 0;
+    const bcrVal = (idxBcr!==undefined && typeof row[idxBcr]==='number') ? row[idxBcr] : 0;
+    const count = bprVal + bcrVal;
+    if(count>0){ out.push({ month, docNo, seq, count }); }
+  }
+  return out;
+}
+function attachRealtimeToReissues(reissueRows){
+  const map = buildRealtimeMap();
+  return reissueRows.map(r=>{
+    const key = r.month + '|' + r.docNo + '|' + r.seq;
+    const info = map[key];
+    return Object.assign({}, r, {
+      realtime: info ? info.realtime : null,
+      itemName: info ? info.itemName : '',
+    });
   });
-  html += '</tbody></table></div>';
+}
 
-  html += '<h3 style="font-size:13px; margin:0 0 8px;">② 월별 목표일초과 건수</h3>';
-  html += '<div class="table-scroll" style="margin-bottom:20px;"><table><thead><tr>'
-    + '<th rowspan="2">월</th><th colspan="2">BPR</th><th colspan="2">BCR</th></tr><tr>'
-    + '<th>실시간</th><th>제관설정</th><th>실시간</th><th>제관설정</th></tr></thead><tbody>';
-  months.forEach(m=>{
-    const bprM = STATE.bprRows.filter(r=>r.month===m && r.overTarget===1);
-    const bcrM = STATE.bcrRows.filter(r=>r.month===m && r.overTarget===1);
-    const bprRt = bprM.filter(r=>r.realtime).length, bprSet = bprM.filter(r=>!r.realtime).length;
-    const bcrRt = bcrM.filter(r=>r.realtime).length, bcrSet = bcrM.filter(r=>!r.realtime).length;
-    html += `<tr><td class="month-cell">${m}월</td><td>${bprRt}</td><td>${bprSet}</td><td>${bcrRt}</td><td>${bcrSet}</td></tr>`;
-  });
-  html += '</tbody></table></div>';
+let REALTIME_REV_CACHE = [];
+let chartRtDoc = null, chartRtOver = null, chartRtErr = null, chartRtReissue = null, chartRtWorker = null;
+let REALTIME_REISSUE_CACHE = [];
+function renderRealtimeTab(revRows, reissueRows, period){
+  period = period || '12';
+  REALTIME_REV_CACHE = revRows;
+  REALTIME_REISSUE_CACHE = reissueRows || [];
+  const filteredRev = (period==='49') ? revRows.filter(r=>r.month>=4 && r.month<=9) : revRows;
+  const filteredReissue = (period==='49') ? REALTIME_REISSUE_CACHE.filter(r=>r.month>=4 && r.month<=9) : REALTIME_REISSUE_CACHE;
+  const months = (period==='49') ? STATE.monthsPresent.filter(m=>m>=4&&m<=9) : STATE.monthsPresent;
+  const bprFiltered = ((period==='49') ? STATE.bprRows.filter(r=>r.month>=4&&r.month<=9) : STATE.bprRows)
+    .filter(r=>!isEDMItem(r.itemName));
 
-  const linked = attachRealtimeToRevisions(revRows);
+  let html = '<div class="toggle-row" id="periodToggle8">'
+    + '<div class="toggle-btn' + (period==='12'?' active':'') + '" data-period="12">1~12월</div>'
+    + '<div class="toggle-btn' + (period==='49'?' active':'') + '" data-period="49">4~9월</div>'
+    + '</div>';
+  html += '<div class="desc" style="margin-bottom:10px;">※ BPR·BCR은 배치 하나당 항상 쌍으로 발행되는 1건으로 보고, BPR 행 기준으로 집계했습니다 (BCR 시트에는 \'실시간 품목\' 컬럼 자체가 없음). <b>EDM 품목은 집계에서 제외했습니다.</b></div>';
+
+  const linked = attachRealtimeToRevisions(filteredRev).filter(r=>!isEDMItem(r.itemName));
   const unlinked = linked.filter(r=>r.realtime===null).length;
-  const workers = Array.from(new Set(linked.map(r=>r.worker))).sort();
-  const perWorker = {};
-  workers.forEach(w=>{ perWorker[w] = { realtime:0, setup:0, unknown:0 }; });
+  const errByMonth = {};
   linked.forEach(r=>{
-    const bucket = r.realtime===true ? 'realtime' : (r.realtime===false ? 'setup' : 'unknown');
-    perWorker[r.worker][bucket] += r.count;
+    if(!errByMonth[r.month]) errByMonth[r.month] = { rt:0, st:0 };
+    if(r.realtime===true) errByMonth[r.month].rt += r.count;
+    else if(r.realtime===false) errByMonth[r.month].st += r.count;
   });
-  const sortedWorkers = workers.slice().sort((a,b)=>{
-    const ta = perWorker[a].realtime+perWorker[a].setup+perWorker[a].unknown;
-    const tb = perWorker[b].realtime+perWorker[b].setup+perWorker[b].unknown;
+
+  const linkedReissue = attachRealtimeToReissues(filteredReissue).filter(r=>!isEDMItem(r.itemName));
+  const reissueByMonth = {};
+  linkedReissue.forEach(r=>{
+    if(!reissueByMonth[r.month]) reissueByMonth[r.month] = { rt:0, st:0 };
+    if(r.realtime===true) reissueByMonth[r.month].rt += r.count;
+    else if(r.realtime===false) reissueByMonth[r.month].st += r.count;
+  });
+
+  html += '<h3 style="font-size:13px; margin:0 0 8px;">① 월별 문서개수 · 목표일초과 건수 · 총오류건수 · 재발행 건수 (BPR & BCR)</h3>';
+  html += '<div class="table-scroll" style="margin-bottom:20px;"><table><thead><tr>'
+    + '<th rowspan="2">월</th><th colspan="2">문서개수</th><th colspan="2">목표일초과 건수</th><th colspan="2">총오류건수</th><th colspan="2">재발행 건수</th></tr><tr>'
+    + '<th>실시간</th><th>제관설정</th><th>실시간</th><th>제관설정</th><th>실시간</th><th>제관설정</th><th>실시간</th><th>제관설정</th></tr></thead><tbody>';
+  const docRtArr=[], docSetArr=[], overRtArr=[], overSetArr=[], errRtArr=[], errSetArr=[], reissueRtArr=[], reissueSetArr=[];
+  months.forEach(m=>{
+    const bprM = bprFiltered.filter(r=>r.month===m);
+    const docRt = bprM.filter(r=>r.realtime).length, docSet = bprM.filter(r=>!r.realtime).length;
+    const overM = bprM.filter(r=>r.overTarget===1);
+    const overRt = overM.filter(r=>r.realtime).length, overSet = overM.filter(r=>!r.realtime).length;
+    const err = errByMonth[m] || { rt:0, st:0 };
+    const reissue = reissueByMonth[m] || { rt:0, st:0 };
+    docRtArr.push(docRt); docSetArr.push(docSet); overRtArr.push(overRt); overSetArr.push(overSet);
+    errRtArr.push(err.rt); errSetArr.push(err.st); reissueRtArr.push(reissue.rt); reissueSetArr.push(reissue.st);
+    html += `<tr><td class="month-cell">${m}월</td><td>${docRt}</td><td>${docSet}</td><td>${overRt}</td><td>${overSet}</td><td>${err.rt||'-'}</td><td>${err.st||'-'}</td><td>${reissue.rt||'-'}</td><td>${reissue.st||'-'}</td></tr>`;
+  });
+  html += '</tbody></table></div>';
+
+  html += '<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;">';
+  html += '<div class="chart-box" style="height:280px;"><canvas id="chartRtDoc"></canvas></div>';
+  html += '<div class="chart-box" style="height:280px;"><canvas id="chartRtOver"></canvas></div>';
+  html += '<div class="chart-box" style="height:280px;"><canvas id="chartRtErr"></canvas></div>';
+  html += '<div class="chart-box" style="height:280px;"><canvas id="chartRtReissue"></canvas></div>';
+  html += '</div>';
+
+  const perWorker = {};
+  function ensure(w){ if(!perWorker[w]) perWorker[w] = { rtDoc:0, stDoc:0, rtErr:0, stErr:0, unkErr:0 }; return perWorker[w]; }
+
+  const roleFields = ['worker1','confirmer1','worker2','confirmer2'];
+  bprFiltered.forEach(r=>{
+    roleFields.forEach(rf=>{
+      const name = r[rf];
+      if(!name) return;
+      const p = ensure(name);
+      if(r.realtime) p.rtDoc++; else p.stDoc++;
+    });
+  });
+  linked.forEach(r=>{
+    const p = ensure(r.worker);
+    if(r.realtime===true) p.rtErr += r.count;
+    else if(r.realtime===false) p.stErr += r.count;
+    else p.unkErr += r.count;
+  });
+
+  const workers = Object.keys(perWorker).sort((a,b)=>{
+    const ta = perWorker[a].rtErr+perWorker[a].stErr+perWorker[a].unkErr;
+    const tb = perWorker[b].rtErr+perWorker[b].stErr+perWorker[b].unkErr;
     return tb-ta;
   });
 
-  html += '<h3 style="font-size:13px; margin:0 0 8px;">③ 작업자별 오류 건수</h3>';
+  html += '<h3 style="font-size:13px; margin:0 0 8px;">② 작업자별 품목개수 · 오류 건수</h3>';
   if(unlinked>0){
-    html += `<div class="desc" style="margin-bottom:10px;">⚠ 수정이력 ${unlinked}건은 발행번호·해당월순번으로 BPR/BCR 원본과 연결하지 못해 '연결안됨'으로 따로 표시했습니다. (③ 칸에 발행번호·해당월순번 컬럼이 포함되도록 헤더 행부터 붙여넣었는지 확인해주세요)</div>`;
+    html += `<div class="desc" style="margin-bottom:10px;">⚠ 수정이력 ${unlinked}건은 발행번호·해당월순번으로 BPR/BCR 원본과 연결하지 못해 '연결안됨'으로 따로 표시했습니다.</div>`;
   }
-  html += '<div class="table-scroll"><table><thead><tr><th>작업자</th><th>실시간</th><th>제관설정</th>'
-    + (unlinked>0 ? '<th>연결안됨</th>' : '') + '<th>합계</th></tr></thead><tbody>';
-  sortedWorkers.forEach(w=>{
+  html += '<div class="table-scroll"><table><thead><tr><th>작업자</th><th>실시간 품목개수</th><th>실시간 품목 오류수</th><th>제관설정 품목개수</th><th>제관설정 품목 오류수</th>'
+    + (unlinked>0 ? '<th>연결안됨(오류)</th>' : '') + '<th>합계(오류)</th></tr></thead><tbody>';
+  workers.forEach(w=>{
     const p = perWorker[w];
-    const total = p.realtime + p.setup + p.unknown;
-    html += `<tr><td class="month-cell">${w}</td><td class="${p.realtime>0?'over-target':''}">${p.realtime||'-'}</td><td class="${p.setup>0?'over-target':''}">${p.setup||'-'}</td>`
-      + (unlinked>0 ? `<td>${p.unknown||'-'}</td>` : '')
-      + `<td><b>${total}</b></td></tr>`;
+    const totalErr = p.rtErr + p.stErr + p.unkErr;
+    html += `<tr><td class="month-cell">${w}</td><td>${p.rtDoc||'-'}</td><td class="${p.rtErr>0?'over-target':''}">${p.rtErr||'-'}</td>`
+      + `<td>${p.stDoc||'-'}</td><td class="${p.stErr>0?'over-target':''}">${p.stErr||'-'}</td>`
+      + (unlinked>0 ? `<td>${p.unkErr||'-'}</td>` : '')
+      + `<td><b>${totalErr}</b></td></tr>`;
   });
   html += '</tbody></table></div>';
 
-  document.getElementById('t8desc').textContent = `실시간 품목(제조 중 실시간 작성) vs 제관설정 품목(제조관리팀이 시간 설정)을 기준으로 나눈 통계입니다. (수정이력 ${revRows.length}건 중 ${revRows.length-unlinked}건 연결됨)`;
+  const workerChartHeight = Math.max(280, workers.length * 24 + 60);
+  html += `<div class="chart-box" style="height:${workerChartHeight}px; margin-bottom:20px;"><canvas id="chartRtWorker"></canvas></div>`;
+
+  document.getElementById('t8desc').textContent = `실시간 품목(제조 중 실시간 작성) vs 제관설정 품목(제조관리팀이 시간 설정)을 기준으로 나눈 통계입니다 (EDM 품목 제외). (${period==='12'?'1~12월':'4~9월'} 기준, 수정이력 ${filteredRev.length}건 중 ${filteredRev.length-unlinked}건 연결됨)`;
   document.getElementById('t8body').innerHTML = html;
   makeAllTablesSortable(document.getElementById('t8body'));
+
+  document.getElementById('periodToggle8').addEventListener('click', e=>{
+    const btn = e.target.closest('.toggle-btn'); if(!btn) return;
+    renderRealtimeTab(REALTIME_REV_CACHE, REALTIME_REISSUE_CACHE, btn.dataset.period);
+  });
+
+  const monthLabels = months.map(m=>m+'월');
+  const rtColor = '#2f6f76', stColor = '#c1682f';
+  const makeMonthlyChart = (canvasId, title, rtData, stData, prev) => {
+    if(prev) prev.destroy();
+    const el = document.getElementById(canvasId);
+    if(!el) return null;
+    return new Chart(el.getContext('2d'), {
+      type:'bar',
+      data:{ labels: monthLabels, datasets:[
+        { label:'실시간', data: rtData, backgroundColor: rtColor+'99' },
+        { label:'제관설정', data: stData, backgroundColor: stColor+'99' },
+      ] },
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{ title:{display:true, text:title, font:{size:12,weight:'bold'}}, legend:{position:'top', labels:{boxWidth:12,font:{size:10.5}}} },
+        scales:{ y:{ beginAtZero:true } } }
+    });
+  };
+  chartRtDoc = makeMonthlyChart('chartRtDoc', '월별 문서개수', docRtArr, docSetArr, chartRtDoc);
+  chartRtOver = makeMonthlyChart('chartRtOver', '월별 목표일초과 건수', overRtArr, overSetArr, chartRtOver);
+  chartRtErr = makeMonthlyChart('chartRtErr', '월별 총오류건수', errRtArr, errSetArr, chartRtErr);
+  chartRtReissue = makeMonthlyChart('chartRtReissue', '월별 재발행 건수', reissueRtArr, reissueSetArr, chartRtReissue);
+
+  if(chartRtWorker) chartRtWorker.destroy();
+  const workerCtxEl = document.getElementById('chartRtWorker');
+  if(workerCtxEl){
+    chartRtWorker = new Chart(workerCtxEl.getContext('2d'), {
+      type:'bar',
+      data:{ labels: workers, datasets:[
+        { label:'실시간 오류', data: workers.map(w=>perWorker[w].rtErr), backgroundColor: rtColor+'99' },
+        { label:'제관설정 오류', data: workers.map(w=>perWorker[w].stErr), backgroundColor: stColor+'99' },
+      ] },
+      options:{ responsive:true, maintainAspectRatio:false, indexAxis:'y',
+        plugins:{ title:{display:true, text:'작업자별 오류 건수 (실시간 vs 제관설정)', font:{size:13,weight:'bold'}}, legend:{position:'top'} },
+        scales:{ x:{ beginAtZero:true, title:{display:true, text:'건수'} } } }
+    });
+  }
 }
 
 const TEAM_COLS = {
@@ -1044,6 +1185,40 @@ function renderTeamStats(rows, period){
   });
 }
 
+function scanFormulaErrors(wb){
+  const groups = {};
+  wb.SheetNames.forEach(sheetName=>{
+    const ws = wb.Sheets[sheetName];
+    Object.keys(ws).forEach(addr=>{
+      if(addr[0]==='!') return;
+      const cell = ws[addr];
+      if(cell && cell.t === 'e'){
+        const errType = cell.w || String(cell.v);
+        const key = sheetName + '|' + errType;
+        if(!groups[key]) groups[key] = { sheet: sheetName, error: errType, count:0, examples: [], formula: cell.f || '' };
+        groups[key].count++;
+        if(groups[key].examples.length < 5) groups[key].examples.push(addr);
+      }
+    });
+  });
+  return Object.values(groups).sort((a,b)=> b.count - a.count);
+}
+
+function renderFormulaErrors(groups){
+  const body = document.getElementById('t6body');
+  if(groups.length===0){
+    body.innerHTML = '<div class="desc" style="color:var(--ok); font-weight:700;">발견된 수식 오류가 없습니다.</div>';
+    return;
+  }
+  const totalCount = groups.reduce((s,g)=>s+g.count,0);
+  let html = `<div class="desc" style="margin-bottom:12px;">총 <b style="color:var(--bad);">${totalCount}건</b>의 오류 셀이 ${groups.length}개 그룹으로 발견되었습니다.</div>`;
+  html += '<div class="table-scroll"><table><thead><tr><th>시트</th><th>오류 유형</th><th>건수</th><th>예시 셀</th><th>수식(예시)</th></tr></thead><tbody>';
+  groups.forEach(g=>{
+    html += `<tr><td>${g.sheet}</td><td class="over-target">${g.error}</td><td>${g.count}</td><td style="white-space:normal; text-align:left;">${g.examples.join(', ')}</td><td style="white-space:normal; text-align:left; max-width:340px; font-family:monospace; font-size:10.5px;">${(g.formula||'').replace(/</g,'&lt;')}</td></tr>`;
+  });
+  html += '</tbody></table></div>';
+  body.innerHTML = html;
+}
 function coerceCell(raw){
   if(raw===undefined || raw===null) return undefined;
   const t = String(raw).trim();
@@ -1445,7 +1620,7 @@ function exportTablesToExcel(){
   addTableSheet(document.querySelector('#t7body table'), '인원별_통계');
 
   const t8tables = document.querySelectorAll('#t8body table');
-  const t8names = ['제관vs실시간_월별문서개수', '제관vs실시간_월별초과건수', '제관vs실시간_작업자별오류'];
+  const t8names = ['제관vs실시간_월별문서개수및초과건수', '제관vs실시간_작업자별품목및오류'];
   t8tables.forEach((tbl, i)=> addTableSheet(tbl, t8names[i] || `제관vs실시간_${i+1}`));
 
   if(sheetCount === 0){
@@ -1597,9 +1772,10 @@ document.getElementById('applyPasteBtn').addEventListener('click', ()=>{
       const revRaw = parseTSV(revText);
       const revHeaderIdx = findRevisionHeaderRow(revRaw);
       const revRows = extractRevisionRows(revRaw, revHeaderIdx);
+      const reissueRows = extractReissueRows(revRaw, revHeaderIdx);
       if(revRows.length){
         renderWorkerErrorTable(revRows);
-        renderRealtimeTab(revRows);
+        renderRealtimeTab(revRows, reissueRows);
         msg += ` / 수정이력 ${revRows.length}건 인식`;
       } else {
         document.getElementById('t5desc').textContent = '수정 이력 데이터에서 작성자(1) 또는 월 컬럼을 찾지 못했습니다. 헤더 행부터 붙여넣었는지 확인해주세요.';
@@ -1635,6 +1811,7 @@ document.querySelectorAll('.tabs .tab[data-tab]').forEach(tab=>{
       if(tab.dataset.tab==='t4' && chart4) chart4.resize();
       if(tab.dataset.tab==='t5' && chartWorker) chartWorker.resize();
       if(tab.dataset.tab==='t7'){ [chartTenureCount,chartTenureAvg,chartTeamCount,chartTeamAvg].forEach(c=>{ if(c) c.resize(); }); }
+      if(tab.dataset.tab==='t8'){ [chartRtDoc,chartRtOver,chartRtErr,chartRtReissue,chartRtWorker].forEach(c=>{ if(c) c.resize(); }); }
     });
   });
 });
