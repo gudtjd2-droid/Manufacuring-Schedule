@@ -1110,12 +1110,12 @@ function renderTeamStats(rows, period){
 
   const sorted = [...rows].sort((a,b)=>pickPeriod(b,period).totalErr-pickPeriod(a,period).totalErr);
   html += '<div class="table-scroll"><table><thead><tr><th>소속</th><th>연차</th><th>성명</th><th>BPR+BCR건수</th>'
-    + '<th>로그북</th><th>단순오류</th><th>불명확업무절차</th><th>절차미준수</th><th>물리적오류</th><th>기타오류</th><th>총오류수</th>'
+    + '<th>단순오류</th><th>불명확업무절차</th><th>절차미준수</th><th>물리적오류</th><th>기타오류</th><th>총오류수</th>'
     + '<th>제출평균지연일</th><th>수정평균소요일</th></tr></thead><tbody>';
   sorted.forEach(r=>{
     const p = pickPeriod(r, period);
     html += `<tr><td>${r.team}</td><td class="month-cell">${r.tenure??'-'}</td><td>${r.name}</td><td>${p.totalCount}</td>`
-      + `<td>${r.logbook}</td><td>${p.simple}</td><td>${p.unclear}</td><td>${p.noncompliance}</td><td>${p.physical}</td><td>${p.etc}</td>`
+      + `<td>${p.simple}</td><td>${p.unclear}</td><td>${p.noncompliance}</td><td>${p.physical}</td><td>${p.etc}</td>`
       + `<td class="${p.totalErr>0?'over-target':''}"><b>${p.totalErr}</b></td>`
       + `<td>${fmt(p.submitDelay)}</td><td>${fmt(p.reviseDelay)}</td></tr>`;
   });
