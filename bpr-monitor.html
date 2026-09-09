@@ -974,6 +974,11 @@ function renderRealtimeTab(revRows, reissueRows, period){
 
   const monthLabels = months.map(m=>m+'월');
   const rtColor = '#2f6f76', stColor = '#c1682f';
+  const makeDL = (color) => ({
+    display:'auto', anchor:'end', align:'top', color, font:{size:10.5,weight:'600'},
+    backgroundColor:'rgba(255,255,255,0.88)', borderRadius:3, padding:{top:1,bottom:1,left:3,right:3},
+    formatter: v => v>0 ? v : '',
+  });
   const makeMonthlyChart = (canvasId, title, rtData, stData, prev) => {
     if(prev) prev.destroy();
     const el = document.getElementById(canvasId);
@@ -981,10 +986,11 @@ function renderRealtimeTab(revRows, reissueRows, period){
     return new Chart(el.getContext('2d'), {
       type:'bar',
       data:{ labels: monthLabels, datasets:[
-        { label:'실시간', data: rtData, backgroundColor: rtColor+'99' },
-        { label:'제관설정', data: stData, backgroundColor: stColor+'99' },
+        { label:'실시간', data: rtData, backgroundColor: rtColor+'99', datalabels: makeDL('#1c4a4f') },
+        { label:'제관설정', data: stData, backgroundColor: stColor+'99', datalabels: makeDL('#8a4520') },
       ] },
       options:{ responsive:true, maintainAspectRatio:false,
+        layout:{ padding:{ top:18 } },
         plugins:{ title:{display:true, text:title, font:{size:12,weight:'bold'}}, legend:{position:'top', labels:{boxWidth:12,font:{size:10.5}}} },
         scales:{ y:{ beginAtZero:true } } }
     });
@@ -1000,10 +1006,15 @@ function renderRealtimeTab(revRows, reissueRows, period){
     chartRtWorker = new Chart(workerCtxEl.getContext('2d'), {
       type:'bar',
       data:{ labels: workers, datasets:[
-        { label:'실시간 오류', data: workers.map(w=>perWorker[w].rtErr), backgroundColor: rtColor+'99' },
-        { label:'제관설정 오류', data: workers.map(w=>perWorker[w].stErr), backgroundColor: stColor+'99' },
+        { label:'실시간 오류', data: workers.map(w=>perWorker[w].rtErr), backgroundColor: rtColor+'99',
+          datalabels:{ display:'auto', anchor:'end', align:'end', color:'#1c4a4f', font:{size:10.5,weight:'600'},
+            backgroundColor:'rgba(255,255,255,0.88)', borderRadius:3, padding:{top:1,bottom:1,left:3,right:3}, formatter:v=>v>0?v:'' } },
+        { label:'제관설정 오류', data: workers.map(w=>perWorker[w].stErr), backgroundColor: stColor+'99',
+          datalabels:{ display:'auto', anchor:'end', align:'end', color:'#8a4520', font:{size:10.5,weight:'600'},
+            backgroundColor:'rgba(255,255,255,0.88)', borderRadius:3, padding:{top:1,bottom:1,left:3,right:3}, formatter:v=>v>0?v:'' } },
       ] },
       options:{ responsive:true, maintainAspectRatio:false, indexAxis:'y',
+        layout:{ padding:{ right:28 } },
         plugins:{ title:{display:true, text:'작업자별 오류 건수 (실시간 vs 제관설정)', font:{size:13,weight:'bold'}}, legend:{position:'top'} },
         scales:{ x:{ beginAtZero:true, title:{display:true, text:'건수'} } } }
     });
@@ -1185,40 +1196,6 @@ function renderTeamStats(rows, period){
   });
 }
 
-function scanFormulaErrors(wb){
-  const groups = {};
-  wb.SheetNames.forEach(sheetName=>{
-    const ws = wb.Sheets[sheetName];
-    Object.keys(ws).forEach(addr=>{
-      if(addr[0]==='!') return;
-      const cell = ws[addr];
-      if(cell && cell.t === 'e'){
-        const errType = cell.w || String(cell.v);
-        const key = sheetName + '|' + errType;
-        if(!groups[key]) groups[key] = { sheet: sheetName, error: errType, count:0, examples: [], formula: cell.f || '' };
-        groups[key].count++;
-        if(groups[key].examples.length < 5) groups[key].examples.push(addr);
-      }
-    });
-  });
-  return Object.values(groups).sort((a,b)=> b.count - a.count);
-}
-
-function renderFormulaErrors(groups){
-  const body = document.getElementById('t6body');
-  if(groups.length===0){
-    body.innerHTML = '<div class="desc" style="color:var(--ok); font-weight:700;">발견된 수식 오류가 없습니다.</div>';
-    return;
-  }
-  const totalCount = groups.reduce((s,g)=>s+g.count,0);
-  let html = `<div class="desc" style="margin-bottom:12px;">총 <b style="color:var(--bad);">${totalCount}건</b>의 오류 셀이 ${groups.length}개 그룹으로 발견되었습니다.</div>`;
-  html += '<div class="table-scroll"><table><thead><tr><th>시트</th><th>오류 유형</th><th>건수</th><th>예시 셀</th><th>수식(예시)</th></tr></thead><tbody>';
-  groups.forEach(g=>{
-    html += `<tr><td>${g.sheet}</td><td class="over-target">${g.error}</td><td>${g.count}</td><td style="white-space:normal; text-align:left;">${g.examples.join(', ')}</td><td style="white-space:normal; text-align:left; max-width:340px; font-family:monospace; font-size:10.5px;">${(g.formula||'').replace(/</g,'&lt;')}</td></tr>`;
-  });
-  html += '</tbody></table></div>';
-  body.innerHTML = html;
-}
 function coerceCell(raw){
   if(raw===undefined || raw===null) return undefined;
   const t = String(raw).trim();
