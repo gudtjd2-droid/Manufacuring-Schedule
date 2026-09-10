@@ -868,10 +868,6 @@ function renderRealtimeTab(revRows, reissueRows, period){
   const filteredRev = (period==='49') ? revRows.filter(r=>r.month>=4 && r.month<=9) : revRows;
   const filteredReissue = (period==='49') ? REALTIME_REISSUE_CACHE.filter(r=>r.month>=4 && r.month<=9) : REALTIME_REISSUE_CACHE;
   const months = (period==='49') ? STATE.monthsPresent.filter(m=>m>=4&&m<=9) : STATE.monthsPresent;
-  // 문서개수는 BPR 행만 기준으로 센다(BPR·BCR은 배치 하나당 항상 쌍으로 발행되는 1건이라
-  // BPR 행 수가 곧 배치 수). 목표일초과 건수는 4번 탭과 동일한 기준(BPR+BCR 둘 다 보고 평균,
-  // 평가제외 건은 뺌)으로 맞추되, 실시간/제관설정만 추가로 나눈다.
-  // EDM 품목(품목명에 'EDM' 포함)은 이 탭 전체 집계에서 제외한다.
   const bprFiltered = ((period==='49') ? STATE.bprRows.filter(r=>r.month>=4&&r.month<=9) : STATE.bprRows)
     .filter(r=>!isEDMItem(r.itemName));
   const bcrFiltered = ((period==='49') ? STATE.bcrRows.filter(r=>r.month>=4&&r.month<=9) : STATE.bcrRows)
@@ -881,7 +877,7 @@ function renderRealtimeTab(revRows, reissueRows, period){
     + '<div class="toggle-btn' + (period==='12'?' active':'') + '" data-period="12">1~12월</div>'
     + '<div class="toggle-btn' + (period==='49'?' active':'') + '" data-period="49">4~9월</div>'
     + '</div>';
-  html += '<div class="desc" style="margin-bottom:10px;">※ 문서개수는 BPR 행 기준(BPR·BCR은 배치 하나당 항상 쌍으로 발행되는 1건)이고, 목표일초과 건수는 4번 탭과 동일한 기준(BPR+BCR 둘 다 보고 평균, 평가제외 건 제외)으로 계산했습니다. <b>EDM 품목은 전체 집계에서 제외했습니다.</b></div>';
+  html += '<div class="desc" style="margin-bottom:10px;">※ 문서개수는 BPR 행 기준(BPR·BCR은 배치 하나당 항상 쌍으로 발행되는 1건)이고, 목표일초과 건수는 4번 탭의 \'PV 포함\' 기준과 동일하게(BPR+BCR 둘 다 보고 평균, PV=O이면서 제외된 건까지 포함) 계산했습니다. <b>EDM 품목은 전체 집계에서 제외했습니다.</b></div>';
 
   const linked = attachRealtimeToRevisions(filteredRev).filter(r=>!isEDMItem(r.itemName));
   const unlinked = linked.filter(r=>r.realtime===null).length;
@@ -925,9 +921,10 @@ function renderRealtimeTab(revRows, reissueRows, period){
   months.forEach(m=>{
     const bprM = bprFiltered.filter(r=>r.month===m);
     const docRt = bprM.filter(r=>r.realtime).length, docSet = bprM.filter(r=>!r.realtime).length;
-    // 목표일초과 건수: 4번 탭(overCount, PV 제외 기준)과 동일 — 평가제외 안 된 것만, BPR+BCR 평균
-    const bprOverM = bprFiltered.filter(r=>r.month===m && !r.excluded && r.overTarget===1);
-    const bcrOverM = bcrFiltered.filter(r=>r.month===m && !r.excluded && r.overTarget===1);
+    // 목표일초과 건수: 4번 탭(overCount, PV 포함 기준)과 동일 —
+    // "평가제외 안 된 것" + "PV=O이면서 평가제외도 된 것", BPR+BCR 평균
+    const bprOverM = bprFiltered.filter(r=>r.month===m && r.overTarget===1 && (!r.excluded || (r.pv && r.excluded)));
+    const bcrOverM = bcrFiltered.filter(r=>r.month===m && r.overTarget===1 && (!r.excluded || (r.pv && r.excluded)));
     const bprOverSplit = classifyOverRows(bprOverM, false);
     const bcrOverSplit = classifyOverRows(bcrOverM, true);
     const overRt = (bprOverSplit.rt + bcrOverSplit.rt) / 2;
