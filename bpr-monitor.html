@@ -868,14 +868,20 @@ function renderRealtimeTab(revRows, reissueRows, period){
   const filteredRev = (period==='49') ? revRows.filter(r=>r.month>=4 && r.month<=9) : revRows;
   const filteredReissue = (period==='49') ? REALTIME_REISSUE_CACHE.filter(r=>r.month>=4 && r.month<=9) : REALTIME_REISSUE_CACHE;
   const months = (period==='49') ? STATE.monthsPresent.filter(m=>m>=4&&m<=9) : STATE.monthsPresent;
+  // 문서개수는 BPR 행만 기준으로 센다(BPR·BCR은 배치 하나당 항상 쌍으로 발행되는 1건이라
+  // BPR 행 수가 곧 배치 수). 목표일초과 건수는 4번 탭과 동일한 기준(BPR+BCR 둘 다 보고 평균,
+  // 평가제외 건은 뺌)으로 맞추되, 실시간/제관설정만 추가로 나눈다.
+  // EDM 품목(품목명에 'EDM' 포함)은 이 탭 전체 집계에서 제외한다.
   const bprFiltered = ((period==='49') ? STATE.bprRows.filter(r=>r.month>=4&&r.month<=9) : STATE.bprRows)
+    .filter(r=>!isEDMItem(r.itemName));
+  const bcrFiltered = ((period==='49') ? STATE.bcrRows.filter(r=>r.month>=4&&r.month<=9) : STATE.bcrRows)
     .filter(r=>!isEDMItem(r.itemName));
 
   let html = '<div class="toggle-row" id="periodToggle8">'
     + '<div class="toggle-btn' + (period==='12'?' active':'') + '" data-period="12">1~12월</div>'
     + '<div class="toggle-btn' + (period==='49'?' active':'') + '" data-period="49">4~9월</div>'
     + '</div>';
-  html += '<div class="desc" style="margin-bottom:10px;">※ BPR·BCR은 배치 하나당 항상 쌍으로 발행되는 1건으로 보고, BPR 행 기준으로 집계했습니다 (BCR 시트에는 \'실시간 품목\' 컬럼 자체가 없음). <b>EDM 품목은 집계에서 제외했습니다.</b></div>';
+  html += '<div class="desc" style="margin-bottom:10px;">※ 문서개수는 BPR 행 기준(BPR·BCR은 배치 하나당 항상 쌍으로 발행되는 1건)이고, 목표일초과 건수는 4번 탭과 동일한 기준(BPR+BCR 둘 다 보고 평균, 평가제외 건 제외)으로 계산했습니다. <b>EDM 품목은 전체 집계에서 제외했습니다.</b></div>';
 
   const linked = attachRealtimeToRevisions(filteredRev).filter(r=>!isEDMItem(r.itemName));
   const unlinked = linked.filter(r=>r.realtime===null).length;
@@ -898,17 +904,39 @@ function renderRealtimeTab(revRows, reissueRows, period){
   html += '<div class="table-scroll" style="margin-bottom:20px;"><table><thead><tr>'
     + '<th rowspan="2">월</th><th colspan="2">문서개수</th><th colspan="2">목표일초과 건수</th><th colspan="2">총오류건수</th><th colspan="2">재발행 건수</th></tr><tr>'
     + '<th>실시간</th><th>제관설정</th><th>실시간</th><th>제관설정</th><th>실시간</th><th>제관설정</th><th>실시간</th><th>제관설정</th></tr></thead><tbody>';
+  const realtimeMapForOver = buildRealtimeMap();
+  function classifyOverRows(rows, isBcr){
+    let rt = 0, st = 0;
+    rows.forEach(r=>{
+      let realtime;
+      if(isBcr){
+        const key = r.month + '|' + r.docNo + '|' + r.seq;
+        const info = realtimeMapForOver[key];
+        realtime = info ? info.realtime : null;
+      } else {
+        realtime = r.realtime;
+      }
+      if(realtime===true) rt++;
+      else if(realtime===false) st++;
+    });
+    return { rt, st };
+  }
   const docRtArr=[], docSetArr=[], overRtArr=[], overSetArr=[], errRtArr=[], errSetArr=[], reissueRtArr=[], reissueSetArr=[];
   months.forEach(m=>{
     const bprM = bprFiltered.filter(r=>r.month===m);
     const docRt = bprM.filter(r=>r.realtime).length, docSet = bprM.filter(r=>!r.realtime).length;
-    const overM = bprM.filter(r=>r.overTarget===1);
-    const overRt = overM.filter(r=>r.realtime).length, overSet = overM.filter(r=>!r.realtime).length;
+    // 목표일초과 건수: 4번 탭(overCount, PV 제외 기준)과 동일 — 평가제외 안 된 것만, BPR+BCR 평균
+    const bprOverM = bprFiltered.filter(r=>r.month===m && !r.excluded && r.overTarget===1);
+    const bcrOverM = bcrFiltered.filter(r=>r.month===m && !r.excluded && r.overTarget===1);
+    const bprOverSplit = classifyOverRows(bprOverM, false);
+    const bcrOverSplit = classifyOverRows(bcrOverM, true);
+    const overRt = (bprOverSplit.rt + bcrOverSplit.rt) / 2;
+    const overSet = (bprOverSplit.st + bcrOverSplit.st) / 2;
     const err = errByMonth[m] || { rt:0, st:0 };
     const reissue = reissueByMonth[m] || { rt:0, st:0 };
     docRtArr.push(docRt); docSetArr.push(docSet); overRtArr.push(overRt); overSetArr.push(overSet);
     errRtArr.push(err.rt); errSetArr.push(err.st); reissueRtArr.push(reissue.rt); reissueSetArr.push(reissue.st);
-    html += `<tr><td class="month-cell">${m}월</td><td>${docRt}</td><td>${docSet}</td><td>${overRt}</td><td>${overSet}</td><td>${err.rt||'-'}</td><td>${err.st||'-'}</td><td>${reissue.rt||'-'}</td><td>${reissue.st||'-'}</td></tr>`;
+    html += `<tr><td class="month-cell">${m}월</td><td>${docRt}</td><td>${docSet}</td><td>${fmt(overRt,1)}</td><td>${fmt(overSet,1)}</td><td>${err.rt||'-'}</td><td>${err.st||'-'}</td><td>${reissue.rt||'-'}</td><td>${reissue.st||'-'}</td></tr>`;
   });
   html += '</tbody></table></div>';
 
@@ -977,7 +1005,7 @@ function renderRealtimeTab(revRows, reissueRows, period){
   const makeDL = (color) => ({
     display:'auto', anchor:'end', align:'top', color, font:{size:10.5,weight:'600'},
     backgroundColor:'rgba(255,255,255,0.88)', borderRadius:3, padding:{top:1,bottom:1,left:3,right:3},
-    formatter: v => v>0 ? v : '',
+    formatter: v => v>0 ? (Number.isInteger(v) ? v : v.toFixed(1)) : '',
   });
   const makeMonthlyChart = (canvasId, title, rtData, stData, prev) => {
     if(prev) prev.destroy();
