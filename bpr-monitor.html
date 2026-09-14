@@ -1427,7 +1427,7 @@ function renderChart3(includePV){
     type:'line',
     data:{ labels: months.map(m=>m+'월'), datasets },
     options:{ responsive:true, maintainAspectRatio:false,
-      layout:{ padding:{ top:20, bottom:16, right:8 } },
+      layout:{ padding:{ top:20, bottom:16, right:40 } },
       scales:{ y:{ title:{display:true, text:'소요일'} } },
       plugins:{
         legend:{position:'top', labels:{ filter: (item, chartData)=> !chartData.datasets[item.datasetIndex].hideFromLegend } },
