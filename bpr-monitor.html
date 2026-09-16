@@ -368,7 +368,6 @@ const BPR_COLS = {
   excl: '평가제외(외부요인)',
   reason: '평가제외사유',
   workerDelay: '작업자제출지연일(공휴일제외)',
-  review1st: '검토소요일(근무일기준)',
   reviewTotal: '총검토소요일(공휴일제외)',
   revise: '수정소요일(공휴일제외)',
   docPrepDelay: '제출~접수소요일(문서결재준비완료일)',
@@ -389,7 +388,6 @@ const BCR_COLS = {
   excl: '평가제외(외부요인)',
   reason: '평가제외사유',
   workerDelay: '작업자제출지연일(공휴일제외)',
-  review1st: '1차검토소요일(근무일기준)',
   reviewTotal: '총검토소요일(공휴일제외)',
   revise: '수정소요일(공휴일제외)',
   docPrepDelay: '제출~접수소요일(문서결재준비완료일)',
@@ -403,7 +401,6 @@ const BCR_COLS = {
 
 const METRIC_LABELS = {
   workerDelay: '작업자제출 지연일',
-  review1st: '1차 검토 소요일',
   reviewTotal: '총 검토소요일(공휴일제외)',
   revise: '수정 소요일(공휴일제외)',
   docPrepDelay: '접수지연일(문서결재준비일)',
@@ -921,8 +918,6 @@ function renderRealtimeTab(revRows, reissueRows, period){
   months.forEach(m=>{
     const bprM = bprFiltered.filter(r=>r.month===m);
     const docRt = bprM.filter(r=>r.realtime).length, docSet = bprM.filter(r=>!r.realtime).length;
-    // 목표일초과 건수: 4번 탭(overCount, PV 포함 기준)과 동일 —
-    // "평가제외 안 된 것" + "PV=O이면서 평가제외도 된 것", BPR+BCR 평균
     const bprOverM = bprFiltered.filter(r=>r.month===m && r.overTarget===1 && (!r.excluded || (r.pv && r.excluded)));
     const bcrOverM = bcrFiltered.filter(r=>r.month===m && r.overTarget===1 && (!r.excluded || (r.pv && r.excluded)));
     const bprOverSplit = classifyOverRows(bprOverM, false);
@@ -1635,57 +1630,64 @@ function exportTablesToExcel(){
 
 document.getElementById('exportExcelBtn').addEventListener('click', exportTablesToExcel);
 
-const SNAPSHOT_PREFIX = 'bprMonitorSnapshot:';
-
-function listSnapshotKeys(){
-  const keys = [];
-  for(let i=0; i<localStorage.length; i++){
-    const k = localStorage.key(i);
-    if(k && k.startsWith(SNAPSHOT_PREFIX)) keys.push(k);
+// ---- 월별 데이터 저장/관리 (서버 SQLite 사용 — 여러 명이 같은 서버에서 저장한 데이터를 함께 봄) ----
+async function fetchSnapshotList(){
+  try{
+    const res = await fetch('/api/snapshots');
+    if(!res.ok) return [];
+    return await res.json();
+  }catch(err){
+    return [];
   }
-  return keys;
 }
 
-function saveSnapshot(label){
-  const payload = {
-    label,
-    savedAt: new Date().toISOString(),
-    bpr: document.getElementById('pasteBPR').value,
-    bcr: document.getElementById('pasteBCR').value,
-    rev: document.getElementById('pasteRev').value,
-    team: document.getElementById('pasteTeam').value,
-  };
+async function fetchSnapshotDetail(label){
   try{
-    localStorage.setItem(SNAPSHOT_PREFIX + label, JSON.stringify(payload));
-    return true;
+    const res = await fetch('/api/snapshots/' + encodeURIComponent(label));
+    if(!res.ok) return null;
+    return await res.json();
+  }catch(err){
+    return null;
+  }
+}
+
+async function saveSnapshot(label){
+  try{
+    const res = await fetch('/api/snapshots', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        label,
+        bpr: document.getElementById('pasteBPR').value,
+        bcr: document.getElementById('pasteBCR').value,
+        rev: document.getElementById('pasteRev').value,
+        team: document.getElementById('pasteTeam').value,
+      }),
+    });
+    return res.ok;
   }catch(err){
     return false;
   }
 }
 
-function loadSnapshot(label){
-  const raw = localStorage.getItem(SNAPSHOT_PREFIX + label);
-  if(!raw) return null;
-  try{ return JSON.parse(raw); }catch(err){ return null; }
+async function deleteSnapshot(label){
+  try{
+    const res = await fetch('/api/snapshots/' + encodeURIComponent(label), { method: 'DELETE' });
+    return res.ok;
+  }catch(err){
+    return false;
+  }
 }
 
-function deleteSnapshot(label){
-  localStorage.removeItem(SNAPSHOT_PREFIX + label);
-}
-
-function renderSnapshotList(){
-  const keys = listSnapshotKeys();
+async function renderSnapshotList(){
   const bar = document.getElementById('headerSnapshotBar');
   const select = document.getElementById('headerSnapshotSelect');
-  if(keys.length === 0){
+  const items = await fetchSnapshotList();
+  if(items.length === 0){
     bar.style.display = 'none';
     return;
   }
   bar.style.display = 'flex';
-  const items = keys.map(k=>{
-    try{ return JSON.parse(localStorage.getItem(k)); }catch(err){ return null; }
-  }).filter(Boolean).sort((a,b)=> new Date(b.savedAt) - new Date(a.savedAt));
-
   select.innerHTML = '<option value="">선택...</option>'
     + items.map(it=>`<option value="${it.label.replace(/"/g,'&quot;')}">${it.label}</option>`).join('');
 }
@@ -1700,7 +1702,7 @@ function suggestSnapshotLabel(){
   return `저장 ${stamp}`;
 }
 
-document.getElementById('saveSnapshotBtn').addEventListener('click', ()=>{
+document.getElementById('saveSnapshotBtn').addEventListener('click', async ()=>{
   let label = document.getElementById('snapshotLabel').value.trim();
   const statusEl = document.getElementById('snapshotSaveStatus');
   const bprText = document.getElementById('pasteBPR').value;
@@ -1710,8 +1712,9 @@ document.getElementById('saveSnapshotBtn').addEventListener('click', ()=>{
     return;
   }
   if(!label) label = suggestSnapshotLabel();
-  const ok = saveSnapshot(label);
-  statusEl.textContent = ok ? `'${label}'로 저장했습니다.` : '저장 실패 (브라우저 저장공간이 가득 찼을 수 있어요).';
+  statusEl.textContent = '저장 중...';
+  const ok = await saveSnapshot(label);
+  statusEl.textContent = ok ? `'${label}'로 저장했습니다.` : '저장 실패 (서버에 연결하지 못했어요).';
   if(ok){
     document.getElementById('snapshotLabel').value = '';
     renderSnapshotList();
@@ -1731,10 +1734,10 @@ document.getElementById('resetSnapshotBtn').addEventListener('click', ()=>{
   STATE = { bprRows: [], bcrRows: [], monthsPresent: [], combinedOnly1:false, combinedOnly2:false };
 });
 
-document.getElementById('headerSnapshotSelect').addEventListener('change', (e)=>{
+document.getElementById('headerSnapshotSelect').addEventListener('change', async (e)=>{
   const label = e.target.value;
   if(!label) return;
-  const snap = loadSnapshot(label);
+  const snap = await fetchSnapshotDetail(label);
   if(!snap) return;
   document.getElementById('pasteBPR').value = snap.bpr || '';
   document.getElementById('pasteBCR').value = snap.bcr || '';
@@ -1744,12 +1747,12 @@ document.getElementById('headerSnapshotSelect').addEventListener('change', (e)=>
   document.getElementById('pasteStatus').textContent = `'${snap.label}' 불러왔습니다.`;
 });
 
-document.getElementById('headerSnapshotDeleteBtn').addEventListener('click', ()=>{
+document.getElementById('headerSnapshotDeleteBtn').addEventListener('click', async ()=>{
   const select = document.getElementById('headerSnapshotSelect');
   const label = select.value;
   if(!label){ alert('삭제할 저장 데이터를 먼저 선택해주세요.'); return; }
   if(!confirm(`'${label}' 저장 데이터를 삭제할까요?`)) return;
-  deleteSnapshot(label);
+  await deleteSnapshot(label);
   renderSnapshotList();
 });
 
