@@ -204,8 +204,8 @@
       <div class="chart-box" style="height:560px;"><canvas id="chart3"></canvas></div>
       <div class="threshold-legend">
         <span class="item" style="color:#2e7d32;"><span class="dash"></span>BPR,BCR 검토소요일 목표: 0.90일</span>
-        <span class="item" style="color:#1565c0;"><span class="dash"></span>중간체 BPR,BCR 접수지연일 목표: 1.20일</span>
-        <span class="item" style="color:#c62828;"><span class="dash"></span>API BPR,BCR 접수지연일 목표: 1.04일</span>
+        <span class="item" style="color:#f57c00;"><span class="dash"></span>중간체 BPR,BCR 접수지연일 목표: 1.20일</span>
+        <span class="item" style="color:#d32f2f;"><span class="dash"></span>API BPR,BCR 접수지연일 목표: 1.04일</span>
       </div>
     </div></div>
 
@@ -1490,7 +1490,7 @@ function renderTable(containerId, includePV, combinedOnly){
   html += '<tfoot>';
   [[1,12,'1~12월'],[4,12,'4~12월']].forEach(([from,to,label])=>{
     const issuedSum = data.filter(d=>d.month>=from && d.month<=to).reduce((sum,d)=>sum+d.issued,0);
-    html += `<tr style="border-top:2px solid var(--ink);"><td class="month-cell">${label}<br><span style="font-weight:400; font-size:10px; color:var(--muted);">가중평균</span></td><td><b>${issuedSum}</b></td>`;
+    html += `<tr><td class="month-cell">${label}<br><span style="font-weight:400; font-size:10px; color:var(--muted);">가중평균</span></td><td><b>${issuedSum}</b></td>`;
     METRIC_KEYS.forEach(k=>{
       const isSummary = SUMMARY_KEYS.includes(k);
       if(!combinedOnly){
@@ -1577,8 +1577,8 @@ function renderChart3(includePV){
   }
   datasets.push(
     thresholdDataset('BPR,BCR 검토소요일 목표: 0.90일', 0.90, '#2e7d32'),
-    thresholdDataset('중간체 BPR,BCR 접수지연일 목표: 1.20일', 1.20, '#1565c0'),
-    thresholdDataset('API BPR,BCR 접수지연일 목표: 1.04일', 1.04, '#c62828'),
+    thresholdDataset('중간체 BPR,BCR 접수지연일 목표: 1.20일', 1.20, '#f57c00'),
+    thresholdDataset('API BPR,BCR 접수지연일 목표: 1.04일', 1.04, '#d32f2f'),
   );
 
   const ctx = document.getElementById('chart3').getContext('2d');
