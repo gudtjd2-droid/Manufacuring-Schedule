@@ -177,7 +177,7 @@
 
     <div class="panel active" id="t1"><div class="card">
       <h2>PV 제외 · BPR 진행 평균 소요일 (월별)</h2>
-      <div class="desc">‘평가 제외(외부요인)’ 표시된 건은 평균 계산에서 제외했습니다.</div>
+      <div class="desc">‘평가 제외(외부요인)’ 표시된 건은 평균 계산에서 제외했습니다. 맨 아래 ‘1~12월 / 4~12월’ 행은 각 월의 (발행건수 × 합산값)을 모두 더해 발행건수 합계로 나눈 가중평균입니다 (검토·접수 소요일 4개 항목만).</div>
       <div class="toggle-row" id="combinedToggle1">
         <div class="toggle-btn active" data-mode="all">전체 보기</div>
         <div class="toggle-btn" data-mode="combined">합산만 보기</div>
@@ -187,7 +187,7 @@
 
     <div class="panel" id="t2"><div class="card">
       <h2>PV 포함 · BPR 진행 평균 소요일 (월별)</h2>
-      <div class="desc">‘제외 안 된 배치’ + ‘PV라는 사유로 제외됐던 배치’를 하나의 집합으로 묶어 건수 가중평균을 계산합니다 (기존 오류였던 ‘기본평균+PV평균 단순합산’ 방식 아님 — 이미 포함된 PV 배치가 중복 반영되지 않도록 수정했습니다).</div>
+      <div class="desc">‘제외 안 된 배치’ + ‘PV라는 사유로 제외됐던 배치’를 하나의 집합으로 묶어 건수 가중평균을 계산합니다 (기존 오류였던 ‘기본평균+PV평균 단순합산’ 방식 아님 — 이미 포함된 PV 배치가 중복 반영되지 않도록 수정했습니다). 맨 아래 ‘1~12월 / 4~12월’ 행은 각 월의 (발행건수 × 합산값)을 모두 더해 발행건수 합계로 나눈 가중평균입니다 (검토·접수 소요일 4개 항목만, PV 포함 기준).</div>
       <div class="toggle-row" id="combinedToggle2">
         <div class="toggle-btn active" data-mode="all">전체 보기</div>
         <div class="toggle-btn" data-mode="combined">합산만 보기</div>
@@ -1253,16 +1253,16 @@ function renderTeamStats(rows, period){
   chartTeamCount = new Chart(document.getElementById('chartTeamCount').getContext('2d'), {
     type:'bar',
     data:{ labels: teams, datasets:[
-      { label:'총오류수', data: teamSums, backgroundColor:'#c1682f88', yAxisID:'y',
-        datalabels: labelDL('#8a4520', v=>v>0?v:'') },
-      { label:'작성 건수(BPR 기준, 인원 합계)', data: teamDocs, backgroundColor:'#2f6f7688', yAxisID:'y1',
+      { label:'작성 건수(BPR 기준, 인원 합계)', data: teamDocs, backgroundColor:'#2f6f7688', yAxisID:'y',
         datalabels: labelDL('#1c4a4f', v=>v>0?v:'') },
+      { label:'오류수', data: teamSums, backgroundColor:'#c1682f88', yAxisID:'y1',
+        datalabels: labelDL('#8a4520', v=>v>0?v:'') },
     ] },
     options:{ responsive:true, maintainAspectRatio:false, layout:{padding:{top:18}},
-      plugins:{ legend:{display:true, position:'top'}, title:{display:true,text:'소속(팀)별 총오류수 · 작성 건수'} },
+      plugins:{ legend:{display:true, position:'top'}, title:{display:true,text:'소속(팀)별 작성 건수 · 오류수'} },
       scales:{
-        y:{ beginAtZero:true, position:'left', title:{display:true,text:'총오류수'}, ticks:{color:'#8a4520'} },
-        y1:{ beginAtZero:true, position:'right', title:{display:true,text:'작성 건수'}, ticks:{color:'#1c4a4f'}, grid:{drawOnChartArea:false} },
+        y:{ beginAtZero:true, position:'left', title:{display:true,text:'작성 건수'}, ticks:{color:'#1c4a4f'} },
+        y1:{ beginAtZero:true, position:'right', title:{display:true,text:'오류수'}, ticks:{color:'#8a4520'}, grid:{drawOnChartArea:false} },
       } }
   });
 
@@ -1470,7 +1470,48 @@ function renderTable(containerId, includePV, combinedOnly){
     html += `<td class="${d.overRate>3.19?'over-target':'target-ok'}">${fmt(d.overRate,2)}%</td>`;
     html += `<td class="${d.cumOverRate!==null ? (d.cumOverRate>3.19?'over-target':'target-ok') : ''}">${d.cumOverRate!==null ? fmt(d.cumOverRate,2)+'%' : '-'}</td></tr>`;
   });
-  html += '</tbody></table>';
+  html += '</tbody>';
+
+  // 맨 아래 요약행: 각 월의 (발행건수 × 합산값)을 모두 더해서 발행건수 합계로 나눈 가중평균.
+  // (월별 평균을 단순 평균 내지 않고, 발행건수가 많은 달에 더 큰 비중을 둔다.)
+  // <tfoot>에 넣어서 머리글 클릭 정렬을 해도 맨 아래에 그대로 남는다.
+  const SUMMARY_KEYS = ['midReview','apiReview','midReceipt','apiReceipt'];
+  function weightedAvg(key, field, from, to){
+    let num = 0, den = 0;
+    data.forEach(d=>{
+      if(d.month < from || d.month > to) return;
+      const v = d.metrics[key][field];
+      if(v===null || v===undefined || isNaN(v)) return;
+      num += d.issued * v; den += d.issued;
+    });
+    return den>0 ? num/den : null;
+  }
+  const overCols = combinedOnly ? 3 : 5;
+  html += '<tfoot>';
+  [[1,12,'1~12월'],[4,12,'4~12월']].forEach(([from,to,label])=>{
+    const issuedSum = data.filter(d=>d.month>=from && d.month<=to).reduce((sum,d)=>sum+d.issued,0);
+    html += `<tr style="border-top:2px solid var(--ink);"><td class="month-cell">${label}<br><span style="font-weight:400; font-size:10px; color:var(--muted);">가중평균</span></td><td><b>${issuedSum}</b></td>`;
+    METRIC_KEYS.forEach(k=>{
+      const isSummary = SUMMARY_KEYS.includes(k);
+      if(!combinedOnly){
+        html += isSummary
+          ? `<td class="metric-group-bpr">${fmt(weightedAvg(k,'bpr',from,to))}</td><td class="metric-group-bcr">${fmt(weightedAvg(k,'bcr',from,to))}</td>`
+          : '<td class="metric-group-bpr">-</td><td class="metric-group-bcr">-</td>';
+      }
+      if(isSummary){
+        const w = weightedAvg(k,'combined',from,to);
+        const target = METRIC_TARGETS[k];
+        let cls = '';
+        if(target!==undefined && w!==null) cls = (Math.round(w*100)/100 <= target) ? 'target-ok' : 'target-over';
+        html += `<td class="${cls}"><b>${fmt(w)}</b></td>`;
+      } else {
+        html += '<td>-</td>';
+      }
+    });
+    for(let i=0;i<overCols;i++) html += '<td>-</td>';
+    html += '</tr>';
+  });
+  html += '</tfoot></table>';
   container.innerHTML = html;
   makeAllTablesSortable(container);
 }
@@ -1503,9 +1544,9 @@ function renderChart3(includePV){
       data: data.map(d=>d.metrics[k].combined),
       borderColor: color,
       backgroundColor: color,
-      borderWidth: key ? 5 : 1.8,
-      pointRadius: key ? 6 : 2.5,
-      pointHoverRadius: key ? 8 : 4,
+      borderWidth: key ? 4 : 1.8,
+      pointRadius: key ? 4.5 : 2.5,
+      pointHoverRadius: key ? 6 : 4,
       pointBackgroundColor: color,
       pointBorderColor: key ? '#fff' : color,
       pointBorderWidth: key ? 2 : 1,
