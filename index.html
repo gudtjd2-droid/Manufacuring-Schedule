@@ -618,8 +618,25 @@
   async function saveQcRows(){
     try{ if(loadFailed['qcScheduleLog']) return; await kvSet('qcScheduleLog', JSON.stringify(qcInterRows)); }catch(e){}
   }
+  let catSaveMsg = "", catSaveOk = null;
+  function showCatStatus(){
+    const e = document.getElementById('catStatus'); if(!e) return;
+    e.textContent = catSaveMsg;
+    e.style.color = catSaveOk===false ? 'var(--red)' : 'var(--teal-d)';
+    e.style.fontWeight = '700';
+  }
   async function saveQcCategoryRows(){
-    try{ if(loadFailed['qcCategoryRows']) return; await kvSet('qcCategoryRows', JSON.stringify(qcCategoryRows)); }catch(e){}
+    if(loadFailed['qcCategoryRows']){
+      catSaveOk = false; catSaveMsg = "⚠ 저장 안 됨: 저장소에서 기존 카테고리를 불러오지 못해 덮어쓰기를 막았습니다. 새로고침 후 다시 시도하세요.";
+      showCatStatus(); return false;
+    }
+    catSaveOk = null; catSaveMsg = "저장 중..."; showCatStatus();
+    let ok = false;
+    try{ ok = await kvSet('qcCategoryRows', JSON.stringify(qcCategoryRows)); }catch(e){ ok = false; }
+    catSaveOk = ok;
+    catSaveMsg = ok ? ("✅ 저장됨 · "+new Date().toLocaleTimeString('ko-KR')) : "⚠ 저장 실패: 저장소(Supabase) 연결/권한을 확인하세요.";
+    showCatStatus();
+    return ok;
   }
 
   function storageKey(){ return `caldsched:${state.year}-${String(state.month).padStart(2,'0')}`; }
@@ -795,6 +812,10 @@
     wrap.appendChild(el('div', {class:'warnbox', style:'margin-bottom:12px;'}, [
       "👥 이 링크를 여는 모든 사람이 같은 데이터(배치 목록, 작업조 명단, 카테고리 등록 등)를 보고 함께 수정합니다. 개인 저장이 아니라 팀 공용 저장소입니다."
     ]));
+    const failedKeys = Object.keys(loadFailed).filter(k=>loadFailed[k]);
+    if(failedKeys.length){
+      wrap.appendChild(el('div', {class:'errbox', style:'margin-bottom:12px;'}, ["⚠ 저장소에서 불러오지 못한 항목이 있어 해당 항목의 저장을 막아두었습니다(기존 데이터 보호): "+failedKeys.join(', ')+" · 새로고침 후에도 계속되면 Supabase 프로젝트 상태(일시정지 여부)를 확인하세요."]));
+    }
     const bar = el('div', {class:'card row'});
     const ySel = el('select');
     for(let y=state.year-1;y<=state.year+1;y++){ const o=el('option',{value:y},[y+"년"]); if(y===state.year) o.setAttribute('selected','selected'); ySel.appendChild(o); }
@@ -1115,6 +1136,10 @@
     toggleBtn.onclick = ()=>{ collapsedSections.qcCategory = !collapsedSections.qcCategory; render(); };
     head.appendChild(toggleBtn);
     head.appendChild(el('h2', {style:'margin:0'}, ["🏷️ 품목 카테고리 & 세부항목 등록 (한 번 등록하면 계속 사용됩니다)"]));
+    const catSaveBtn = el('button', {class:'ghost'}, ["💾 카테고리 저장"]);
+    catSaveBtn.onclick = ()=>{ saveQcCategoryRows(); };
+    head.appendChild(catSaveBtn);
+    head.appendChild(el('span', {id:'catStatus', class:'status'}, [catSaveMsg]));
     card.appendChild(head);
     if(collapsedSections.qcCategory) return card;
 
