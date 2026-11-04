@@ -1157,6 +1157,24 @@
       const tr = el('tr');
       const cIn = el('input',{type:'text', value:row.category||'', placeholder:'예: BTO'}); cIn.oninput=()=>{row.category=cIn.value; saveQcCategoryRows();};
       const dIn = el('input',{type:'text', value:row.details||'', placeholder:'예: BTO03'}); dIn.oninput=()=>{row.details=dIn.value; saveQcCategoryRows();};
+      // 엑셀에서 여러 칸을 복사해 이 칸에서 Ctrl+V 하면, 이 칸부터 오른쪽/아래로 채움(칸 하나만 복사하면 평소처럼 붙여넣기)
+      const pasteFrom = (colIdx)=> (e)=>{
+        const text = (e.clipboardData.getData('text/plain')||'').replace(/\r\n/g,'\n').replace(/\n$/,'');
+        if(!/[\t\n]/.test(text)) return;
+        e.preventDefault();
+        text.split('\n').forEach((line, i)=>{
+          const r = idx + i;
+          while(qcCategoryRows.length <= r) qcCategoryRows.push({category:'', details:''});
+          line.split('\t').forEach((v, j)=>{
+            const c = colIdx + j;
+            if(c===0) qcCategoryRows[r].category = v.trim();
+            else if(c===1) qcCategoryRows[r].details = v.trim();
+          });
+        });
+        saveQcCategoryRows(); render();
+      };
+      cIn.addEventListener('paste', pasteFrom(0));
+      dIn.addEventListener('paste', pasteFrom(1));
       const delBtn = el('button',{class:'danger'},["삭제"]); delBtn.onclick=()=>{ qcCategoryRows.splice(idx,1); saveQcCategoryRows(); render(); };
       [cIn,dIn].forEach(i=>{const td=el('td'); td.appendChild(i); tr.appendChild(td);});
       const dtd=el('td'); dtd.appendChild(delBtn); tr.appendChild(dtd);
