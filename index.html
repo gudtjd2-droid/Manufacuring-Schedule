@@ -1166,6 +1166,42 @@
     const addBtn = el('button',{class:'ghost', style:'margin-top:6px;'},["+ 행 추가"]);
     addBtn.onclick=()=>{ qcCategoryRows.push({category:'', details:''}); saveQcCategoryRows(); render(); };
     card.appendChild(addBtn);
+
+    // ---- 엑셀에서 복사한 [품목 | 세부항목] 표 붙여넣기 (기존 등록 내용은 지우지 않고 추가/병합) ----
+    const catPaste = el('div', {class:'pastezone', contenteditable:'true', style:'min-height:60px; margin-top:10px;'}, ["여기를 클릭하고 엑셀의 [품목 | 세부항목] 표를 Ctrl+V로 붙여넣으세요 (기존 등록 내용은 유지되고, 같은 품목은 세부항목이 합쳐집니다)"]);
+    const catPasteMsg = el('div', {class:'hint'});
+    catPaste.addEventListener('paste', (e)=>{
+      e.preventDefault();
+      const html = e.clipboardData.getData('text/html');
+      const text = e.clipboardData.getData('text/plain');
+      const grid = (html && html.includes('<table')) ? htmlToGrid(html) : textToGrid(text);
+      let added = 0, merged = 0, skipped = 0;
+      (grid||[]).forEach((row, ri)=>{
+        const cells = (row||[]).map(c=> (c&&c.text||"").trim());
+        const category = cells[0] || "";
+        const detailsList = cells.slice(1).filter(Boolean).join(',').split(/[,\s]+/).map(x=>x.trim()).filter(Boolean);
+        if(!category){ skipped++; return; }
+        if(ri===0 && /품목|카테고리|구분/.test(category) && /세부|항목/.test(cells.slice(1).join(' '))){ skipped++; return; } // 제목줄
+        const hit = qcCategoryRows.find(r=> (r.category||'').trim().toLowerCase()===category.toLowerCase());
+        if(hit){
+          const have = parseList(hit.details);
+          const extra = detailsList.filter(d=> !have.includes(d));
+          if(extra.length){ hit.details = have.concat(extra).join(', '); merged++; }
+        } else {
+          qcCategoryRows.push({category, details: detailsList.join(', ')}); added++;
+        }
+      });
+      catPasteMsg.textContent = `붙여넣기 결과: 새 품목 ${added}건 추가, 기존 품목 ${merged}건에 세부항목 합침` + (skipped? `, ${skipped}줄 건너뜀(빈 품목칸/제목줄)`:'') + " · 아래 '저장됨'이 뜨는지 확인하세요.";
+      saveQcCategoryRows();
+      catPaste.textContent = "(붙여넣기 완료 — 다시 붙여넣으려면 클릭 후 Ctrl+V)";
+      render();
+      // render로 메시지가 지워지므로 새 화면에 다시 표시
+      setTimeout(()=>{ const h=document.getElementById('catPasteResult'); if(h) h.textContent = catPasteMsg.textContent; }, 0);
+    });
+    catPasteMsg.id = 'catPasteResult';
+    card.appendChild(catPaste);
+    card.appendChild(catPasteMsg);
+
     card.appendChild(el('div', {class:'hint', style:'margin-top:8px;'}, [
       "※ 월간일정의 'QC 중간체 시험의뢰일' 행에는 보통 카테고리명(예: BTO)만 적혀있는데, 실제로는 특정 세부항목(예: BTO03)을 가리키는 경우가 많습니다. 여기에 매핑을 등록해두면, 해당 세부항목 배치의 BPR 제출예정일을 그 카테고리의 시험의뢰일(월간일정에서 자동 인식) + 1영업일로 계산합니다. 날짜 자체는 ①번 붙여넣기에서 계속 자동으로 인식되며 화면에는 따로 표시하지 않습니다."
     ]));
