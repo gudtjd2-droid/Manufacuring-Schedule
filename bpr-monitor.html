@@ -495,7 +495,7 @@ function aggregateMonth(bprRows, bcrRows, month, includePV){
   // 건수 가중평균을 낸다 (예전처럼 두 평균을 단순히 더하면 이미 포함된 배치가 중복 반영됨).
   function selectSet(rows){
     if(!includePV) return rows.filter(r=>!r.excluded);
-    return rows.filter(r=>!r.excluded || (r.excluded && r.pv));
+    return rows.filter(r=>!r.excluded || (r.excluded && r.reason === 'PV'));
   }
   const bprSet = selectSet(bprAll);
   const bcrSet = selectSet(bcrAll);
