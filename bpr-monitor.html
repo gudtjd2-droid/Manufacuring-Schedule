@@ -134,7 +134,7 @@
         <textarea id="pasteRev" placeholder="작업자별 월별 오류 건수를 보려면 ‘26년_BPR, BCR 수정’ 시트를 헤더 행부터 복사해 붙여넣으세요 (생략 가능)" style="width:100%; height:120px; font-size:11.5px; padding:8px; border:1px solid var(--line); border-radius:6px; font-family:monospace;"></textarea>
       </div>
       <div style="margin-top:14px;">
-        <label style="font-size:12.5px; font-weight:700; display:block; margin-bottom:6px;">④ (선택) 인원별 통계 데이터 — ‘26년_통계_제조팀’ 시트, 연차·항목별 오류 정리용 (1~12월/4~9월 구분을 위해 상단 그룹 제목 행부터 포함해서 복사해주세요)</label>
+        <label style="font-size:12.5px; font-weight:700; display:block; margin-bottom:6px;">④ (선택) 인원별 통계 데이터 — ‘26년_통계_제조팀’ 시트, 연차·항목별 오류 정리용 (1~12월/4~12월 구분을 위해 상단 그룹 제목 행부터 포함해서 복사해주세요)</label>
         <textarea id="pasteTeam" placeholder="연차별·항목별 작업자 통계를 보려면 ‘26년_통계_제조팀’ 시트를 헤더 행부터 복사해 붙여넣으세요 (생략 가능)" style="width:100%; height:120px; font-size:11.5px; padding:8px; border:1px solid var(--line); border-radius:6px; font-family:monospace;"></textarea>
       </div>
       <button class="btn" id="applyPasteBtn" style="margin-top:14px;">붙여넣은 데이터로 계산하기</button>
@@ -752,7 +752,7 @@ let REV_ROWS_CACHE = [];
 function renderWorkerErrorTable(revRows, period){
   period = period || '12';
   REV_ROWS_CACHE = revRows;
-  const filteredRows = (period==='49') ? revRows.filter(r=>r.month>=4 && r.month<=9) : revRows;
+  const filteredRows = (period==='49') ? revRows.filter(r=>r.month>=4 && r.month<=12) : revRows;
   filteredRows.usedCategoryMethod = revRows.usedCategoryMethod;
 
   const { workers, months, table, totals, catTotals } = computeWorkerMonthlyErrors(filteredRows);
@@ -760,11 +760,11 @@ function renderWorkerErrorTable(revRows, period){
   document.getElementById('t5desc').textContent = (usedCategoryMethod
     ? `총 ${filteredRows.length}건의 분류된 오류를 인식했습니다 (정식 오류유형 분류 컬럼 기준 — '26년_통계_제조팀' 시트와 동일한 방식).`
     : `총 ${filteredRows.length}건의 수정 이력을 인식했습니다. ※ 오류유형 분류 컬럼(작성자(1) BPR 등, Y~CP열)이 붙여넣기 범위에 없어서, '수정 사항' 텍스트 유무로 대략 집계한 근사치입니다 — '26년_통계_제조팀' 탭 수치와 다를 수 있어요. 정확히 맞추려면 ③번 칸에 헤더 행부터 CP열까지 전체 너비로 다시 붙여넣어주세요.`)
-    + ` (${period==='12' ? '1~12월' : '4~9월'} 기준)`;
+    + ` (${period==='12' ? '1~12월' : '4~12월'} 기준)`;
 
   let html = '<div class="toggle-row" id="periodToggle5">'
     + '<div class="toggle-btn' + (period==='12'?' active':'') + '" data-period="12">1~12월</div>'
-    + '<div class="toggle-btn' + (period==='49'?' active':'') + '" data-period="49">4~9월</div>'
+    + '<div class="toggle-btn' + (period==='49'?' active':'') + '" data-period="49">4~12월</div>'
     + '</div>';
 
   const workerChartHeight = Math.max(280, workers.length * 26 + 40);
@@ -904,21 +904,21 @@ function renderRealtimeTab(revRows, reissueRows, period){
   period = period || '12';
   REALTIME_REV_CACHE = revRows;
   REALTIME_REISSUE_CACHE = reissueRows || [];
-  const filteredRev = (period==='49') ? revRows.filter(r=>r.month>=4 && r.month<=9) : revRows;
-  const filteredReissue = (period==='49') ? REALTIME_REISSUE_CACHE.filter(r=>r.month>=4 && r.month<=9) : REALTIME_REISSUE_CACHE;
-  const months = (period==='49') ? STATE.monthsPresent.filter(m=>m>=4&&m<=9) : STATE.monthsPresent;
+  const filteredRev = (period==='49') ? revRows.filter(r=>r.month>=4 && r.month<=12) : revRows;
+  const filteredReissue = (period==='49') ? REALTIME_REISSUE_CACHE.filter(r=>r.month>=4 && r.month<=12) : REALTIME_REISSUE_CACHE;
+  const months = (period==='49') ? STATE.monthsPresent.filter(m=>m>=4&&m<=12) : STATE.monthsPresent;
   // 문서개수는 BPR 행만 기준으로 센다(BPR·BCR은 배치 하나당 항상 쌍으로 발행되는 1건이라
   // BPR 행 수가 곧 배치 수). 목표일초과 건수는 4번 탭의 'PV 포함' 기준과 동일하게(BPR+BCR 둘 다 보고 평균,
   // 평가제외 건은 뺌)으로 맞추되, 실시간/제관설정만 추가로 나눈다.
   // EDM 품목(품목명에 'EDM' 포함)은 이 탭 전체 집계에서 제외한다.
-  const bprFiltered = ((period==='49') ? STATE.bprRows.filter(r=>r.month>=4&&r.month<=9) : STATE.bprRows)
+  const bprFiltered = ((period==='49') ? STATE.bprRows.filter(r=>r.month>=4&&r.month<=12) : STATE.bprRows)
     .filter(r=>!isEDMItem(r.itemName));
-  const bcrFiltered = ((period==='49') ? STATE.bcrRows.filter(r=>r.month>=4&&r.month<=9) : STATE.bcrRows)
+  const bcrFiltered = ((period==='49') ? STATE.bcrRows.filter(r=>r.month>=4&&r.month<=12) : STATE.bcrRows)
     .filter(r=>!isEDMItem(r.itemName));
 
   let html = '<div class="toggle-row" id="periodToggle8">'
     + '<div class="toggle-btn' + (period==='12'?' active':'') + '" data-period="12">1~12월</div>'
-    + '<div class="toggle-btn' + (period==='49'?' active':'') + '" data-period="49">4~9월</div>'
+    + '<div class="toggle-btn' + (period==='49'?' active':'') + '" data-period="49">4~12월</div>'
     + '</div>';
   html += '<div class="desc" style="margin-bottom:10px;">※ 문서개수는 BPR 행 기준(BPR·BCR은 배치 하나당 항상 쌍으로 발행되는 1건)이고, 목표일초과 건수는 4번 탭의 \'PV 포함\' 기준과 동일하게(BPR+BCR 둘 다 보고 평균, PV=O이면서 제외된 건까지 포함) 계산했습니다. <b>EDM 품목은 전체 집계에서 제외했습니다.</b></div>';
 
@@ -1032,7 +1032,7 @@ function renderRealtimeTab(revRows, reissueRows, period){
   const workerChartHeight = Math.max(280, workers.length * 24 + 60);
   html += `<div class="chart-box" style="height:${workerChartHeight}px; margin-bottom:20px;"><canvas id="chartRtWorker"></canvas></div>`;
 
-  document.getElementById('t8desc').textContent = `실시간 품목(제조 중 실시간 작성) vs 제관설정 품목(제조관리팀이 시간 설정)을 기준으로 나눈 통계입니다 (EDM 품목 제외). (${period==='12'?'1~12월':'4~9월'} 기준, 수정이력 ${filteredRev.length}건 중 ${filteredRev.length-unlinked}건 연결됨)`;
+  document.getElementById('t8desc').textContent = `실시간 품목(제조 중 실시간 작성) vs 제관설정 품목(제조관리팀이 시간 설정)을 기준으로 나눈 통계입니다 (EDM 품목 제외). (${period==='12'?'1~12월':'4~12월'} 기준, 수정이력 ${filteredRev.length}건 중 ${filteredRev.length-unlinked}건 연결됨)`;
   document.getElementById('t8body').innerHTML = html;
   makeAllTablesSortable(document.getElementById('t8body'));
 
@@ -1096,7 +1096,7 @@ const TEAM_COLS = {
   team: ['소속',0], tenure: ['입사년차',0], name: ['성명',0],
   logbook: ['로그북',0],
   totalCount12: ['BPR+BCR건수',0],
-  totalCount49: ['BPR+BCR건수(4월~9월)',0],
+  totalCount49: ['BPR+BCR건수(4월~9월)',0,'BPR+BCR건수(4월~12월)'],
   simple12: ['단순오류',0], unclear12: ['불명확업무절차',0], noncompliance12: ['절차미준수',0], physical12: ['물리적오류',0], etc12: ['기타오류',0], totalErr12: ['총오류수',0],
   simple49: ['단순오류',1], unclear49: ['불명확업무절차',1], noncompliance49: ['절차미준수',1], physical49: ['물리적오류',1], etc49: ['기타오류',1], totalErr49: ['총오류수',1],
   submitDelay12: ['제출평균지연일',0], reviseDelay12: ['수정평균소요일',0],
@@ -1131,8 +1131,9 @@ function extractTeamRows(rows, headerRowIdx){
   const map = buildHeaderMapMulti(rows[headerRowIdx] || []);
   const idx = {};
   Object.keys(TEAM_COLS).forEach(k=>{
-    const [label, occ] = TEAM_COLS[k];
-    const list = map[baseLabel(label)];
+    const [label, occ, altLabel] = TEAM_COLS[k];
+    let list = map[baseLabel(label)];
+    if((!list || list[occ]===undefined) && altLabel) list = map[baseLabel(altLabel)];
     idx[k] = (list && list[occ]!==undefined) ? list[occ] : undefined;
   });
   const out = [];
@@ -1162,7 +1163,7 @@ function renderTeamStats(rows, period){
   TEAM_ROWS_CACHE = rows;
   const allTenureMissing = rows.every(r=>r.tenure===null);
   const allTeamMissing = rows.every(r=>!r.team);
-  let descText = `총 ${rows.length}명의 인원별 통계를 인식했습니다. (${period==='12' ? '1~12월' : '4~9월'} 기준)`;
+  let descText = `총 ${rows.length}명의 인원별 통계를 인식했습니다. (${period==='12' ? '1~12월' : '4~12월'} 기준)`;
   if(allTenureMissing || allTeamMissing){
     descText += ` ⚠ '소속'·'입사년차' 값을 못 읽었어요 — ④번 칸에 붙여넣으실 때 맨 왼쪽 'A열(소속)'부터 포함해서 복사하셨는지 확인해주세요 (성명 열부터 붙여넣으면 이 두 컬럼이 빠져요).`;
   }
@@ -1170,7 +1171,7 @@ function renderTeamStats(rows, period){
 
   let html = '<div class="toggle-row" id="periodToggle7">'
     + '<div class="toggle-btn' + (period==='12'?' active':'') + '" data-period="12">1~12월</div>'
-    + '<div class="toggle-btn' + (period==='49'?' active':'') + '" data-period="49">4~9월</div>'
+    + '<div class="toggle-btn' + (period==='49'?' active':'') + '" data-period="49">4~12월</div>'
     + '</div>';
   html += '<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;">';
   html += '<div class="chart-box" style="height:300px;"><canvas id="chartTenureCount"></canvas></div>';
