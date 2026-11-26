@@ -735,7 +735,10 @@
 
       // ---- BPR 제출예정일 ----
       let bpr;
-      const weekendExtra = isNonBiz(effEnd) ? 2 : 1; // 순수 주말/공휴일 보정(IPC 미포함)
+      const baseUp = (b.base||b.codeId||'').toUpperCase();
+      const isEDMrt = (baseUp==='EDM' && !!b.realtime); // EDM 실시간: 제출일=완료일 고정
+      const rtExtra = (baseUp==='MH' && b.realtime) ? 2 : 1; // MH 실시간: +2영업일
+      const weekendExtra = isNonBiz(effEnd) ? rtExtra+1 : rtExtra; // 순수 주말/공휴일 보정(IPC 미포함)
       if(isMid && qcType==="O"){
         // QC있는 중간체: 시험의뢰일+1영업일이 기준이며, IPC 여부는 영향을 주지 않습니다.
         const qcBased = addBD(qcDate, 1);
@@ -756,10 +759,10 @@
         if(ipcOnLastDay) bpr = addBD(bpr, 1);
       }
 
-      // ---- 근무일 1일 최소 보장(EDM 제외): 제조기간 안에 실제 근무일이 1일뿐이면
+      // ---- 근무일 1일 최소 보장(EDM 제외, 중간체·원료의약품 모두 적용): 제조기간 안에 실제 근무일이 1일뿐이면
       // BPR·로그북 모두 시작일+2영업일을 최소값으로 보장합니다.
       const isEDM = (b.base||b.codeId||'').toUpperCase()==='EDM';
-      if(isMid && !isEDM && bizDaysInRange(start, effEnd)<=1){
+      if(!isEDM && bizDaysInRange(start, effEnd)<=1){
         const floorDate = nthBizDayFrom(start, 2);
         if(!bpr || floorDate > bpr){ bpr = floorDate; note.push("근무일 1일 최소보장으로 제출일 조정"); }
       }
@@ -768,17 +771,18 @@
       let logbook = effEnd;
       if(isNonBiz(logbook)) logbook = nextBD(logbook);
       let logExtra = 0;
-      if(isSpecial) logExtra = 1; // PV·실시간은 로그북도 +1영업일
+      if(isSpecial) logExtra = rtExtra; // PV·실시간은 로그북도 +1영업일 (MH 실시간은 +2)
       if(ipcOnLastDay) logExtra = Math.max(logExtra, 1); // IPC 겹쳐도 최대 +1영업일까지만(스택 안 함)
       if(logExtra) logbook = addBD(logbook, logExtra);
       if(ipcOnLastDay) note.push("IPC가 완료일과 겹쳐 제출일 조정");
-      if(isMid && !isEDM && bizDaysInRange(start, effEnd)<=1){
+      if(!isEDM && bizDaysInRange(start, effEnd)<=1){
         const floorDate = nthBizDayFrom(start, 2);
         if(floorDate > logbook) logbook = floorDate;
       }
 
       if(b.startBold===false) note.push("시작일 굵게 표시 확인 필요(이월 배치일 수 있음)");
 
+      if(isEDMrt){ bpr = effEnd; logbook = effEnd; note.push("EDM 실시간: 제출일=완료일 고정"); }
       const rosterHit = findRoster(b.team);
       const _tk = teamTokens(b.team);
       const rosterHit2 = _tk.length>1 ? (rosterByNo(_tk[1]) || null) : null;
@@ -1295,7 +1299,7 @@
     card.appendChild(list);
 
     card.appendChild(el('div', {class:'hint', style:'margin-top:8px;'},[
-      "※ 모든 영업일 계산은 토·일·공휴일을 전부 제외하고 셉니다. · 로그북: 완료일 그대로(휴일이면 다음 영업일), PV·실시간 품목은 +1영업일 추가, IPC가 완료일과 겹치면 +1영업일 추가. · BPR: PV·실시간 품목은 완료일+1영업일(휴일이면 +2영업일), QC있는 중간체와 겹치면 둘 중 더 늦은 날짜 채택 / QC Test 없는 중간체·원료의약품은 완료일 그대로(휴일이면 다음 영업일) / QC있는 중간체는 QC 중간체 시험의뢰일+1영업일. · PV·실시간·QC Test 없는 중간체는 위 배치 목록 표에서 배치별로 체크합니다."
+      "※ 모든 영업일 계산은 토·일·공휴일을 전부 제외하고 셉니다. · 로그북: 완료일 그대로(휴일이면 다음 영업일), PV·실시간 품목은 +1영업일 추가(MH 실시간은 +2영업일, EDM 실시간은 완료일 고정), IPC가 완료일과 겹치면 +1영업일 추가. · BPR: PV·실시간 품목은 완료일+1영업일(휴일이면 +2영업일), QC있는 중간체와 겹치면 둘 중 더 늦은 날짜 채택 / QC Test 없는 중간체·원료의약품은 완료일 그대로(휴일이면 다음 영업일) / QC있는 중간체는 QC 중간체 시험의뢰일+1영업일. · 제조기간 중 근무일이 1일뿐이면(EDM 제외) BPR·로그북 모두 시작일 포함 2번째 근무일 이후로 보장. · PV·실시간·QC Test 없는 중간체는 위 배치 목록 표에서 배치별로 체크합니다."
     ]));
     return card;
   }
